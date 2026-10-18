@@ -652,6 +652,16 @@ def _rel(paths: set[str], cwd: str, limit: int = 4) -> list[str]:
     return out
 
 
+UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def short_id(session_id: str) -> str:
+    """原始会话文件名里带 UUID，取末 8 位够 `find` 定位。
+    不取开头：Codex 的 UUIDv7 前缀是时间戳，相近时间开的会话会撞。"""
+    match = UUID_RE.search(session_id)
+    return (match.group(0) if match else session_id)[-8:]
+
+
 def _period_word(days: int) -> str:
     return "日报" if days == 1 else "周报" if days == 7 else f"{days} 天汇总"
 
@@ -728,7 +738,7 @@ def render(start, end, cfg, commits, sessions, truncated, dirty=None,
                  if s["start"].date() == s["end"].date()
                  else f"{s['start']:%m-%d %H:%M}–{s['end']:%m-%d %H:%M}")
         dup = f" · ↻ 同开场白 {s['dup_n']} 段" if s.get("dup_n") else ""
-        L.append(f"### [{s['agent']}] {proj} · {tspan} · {s['steps']} 步{dup}")
+        L.append(f"### [{s['agent']}] {proj} · {tspan} · {s['steps']} 步 · id {short_id(s['id'])}{dup}")
         if s["users"]:
             users = s["users"]
             if len(users) > 4:  # 长会话的后半段常有转向，取头尾而不是只取开头

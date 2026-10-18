@@ -514,6 +514,11 @@ class TestRender(unittest.TestCase):
         self.assertIn("a / b / c / d", out)
         self.assertNotIn("省略", out)
 
+    def test_session_header_shows_short_id(self):
+        sess = self.session(["hi"])
+        sess["id"] = "1b6c7937-f8cf-4e4a-ac46-dd5a5c20381d"
+        self.assertIn("· id 5c20381d", self.render([sess]))
+
     def test_header_carries_generation_time(self):
         out = self.render([], generated=datetime(2026, 10, 18, 19, 5, tzinfo=TZ))
         self.assertIn("生成于 2026-10-18 19:05", out)
@@ -582,6 +587,28 @@ class TestValidateConfig(unittest.TestCase):
         for key in ("author_emails", "utc_offset_hours", "max_sessions", "dirty",
                     "reports_dir", "sources"):
             self.assertIn(key, joined)
+
+
+class TestShortId(unittest.TestCase):
+    UUID = "0199aaaa-b74b-7172-9bf3-05172815cd55"
+
+    def test_claude_id_is_a_bare_uuid(self):
+        self.assertEqual(collect.short_id(self.UUID), "2815cd55")
+
+    def test_codex_id_embeds_uuid_after_timestamp(self):
+        self.assertEqual(collect.short_id(f"rollout-2026-03-20T10-54-47-{self.UUID}"), "2815cd55")
+
+    def test_dsh_id_embeds_uuid_after_prefix(self):
+        self.assertEqual(collect.short_id(f"session-{self.UUID}"), "2815cd55")
+
+    def test_uuid_v7_sessions_started_close_together_do_not_collide(self):
+        a = "019d092a-b74b-7172-9bf3-05172815cd55"
+        b = "019d092a-c001-7000-8000-0000deadbeef"  # same timestamp prefix
+        self.assertNotEqual(collect.short_id(a), collect.short_id(b))
+
+    def test_non_uuid_id_falls_back_to_tail(self):
+        self.assertEqual(collect.short_id("abcdef0123456789"), "23456789")
+        self.assertEqual(collect.short_id("i"), "i")
 
 
 if __name__ == "__main__":
