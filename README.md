@@ -1,14 +1,14 @@
 # daily-report
 
-自用的日报/周报 skill：吃本地 **Git 提交** + **Claude Code / Codex / DSH 会话**，产出中文日报。
+自用的日报/周报 skill：吃本地 **Git 提交** + **Claude Code / Codex / DSH（DeepSeek Harness）会话**，产出中文日报。
 
 ```
 daily-report/
-├── SKILL.md                    # 入口：日期解析、判读规则、硬性约束
-├── REFERENCE.md                # 结构选择 + 归纳流程 + 审稿要点 + 硬性规则
-├── tests/test_collect.py       # 18 个回归测试（python3 -m unittest discover -s tests）
-├── examples/2026-10-16.md      # 真实数据的样例输出（照模板写出来的样子）
-├── examples/2026-10-12-weekly.md # 主题归纳后的周报样例
+├── SKILL.md                    # 入口：完整工作流（日期参数、核对、归纳、审稿）和硬性约束
+├── REFERENCE.md                # 查阅材料：模板、分栏依据、证据线索、周期粒度、反例、判读速查
+├── tests/test_collect.py       # 回归测试（python3 -m unittest discover -s tests）
+├── examples/2026-10-16.md      # 日报样例输出（项目名、编号均为虚构）
+├── examples/2026-10-12~2026-10-18.md # 主题归纳后的周报样例
 └── scripts/
     ├── collect.py              # 采集器（仅标准库；DSH 会话走 zstd CLI）
     └── config.example.json     # 配置样例
@@ -58,9 +58,12 @@ S=~/.agents/skills/daily-report/scripts/collect.py
 python3 $S                      # 今天
 python3 $S --date 2026-10-16    # 指定结束日；单日
 python3 $S --days 7             # 最近 7 天（含今天）
+python3 $S --date yesterday     # 昨天（也可写 today）
 python3 $S --date 2026-10-18 --days 7  # 截至指定日期的 7 天
+python3 $S --week               # 本周（周一至今天）
+python3 $S --last-week          # 上周（周一至周日）
 python3 $S --print              # 打 stdout，不落盘
-python3 $S --force              # 覆盖已有证据包
+python3 $S --force              # 覆盖已有证据包（agent 流程固定带它）
 python3 $S --any-author         # 不过滤作者（团队仓库慎用）
 python3 $S --no-sessions        # 只看提交
 python3 $S --no-redact          # 关闭证据包脱敏（默认开启）
@@ -71,15 +74,16 @@ python3 $S --keep 10            # 证据包只留最近 10 份
 
 ## 定时（可选）
 
-macOS `launchd`，每天 19:00 先把证据备好，晚上让 agent 出稿时不用等采集：
+macOS `launchd`，每天 19:00 留一份当天证据快照（会话记录会被 Claude Code 等工具定期清理，留存比事后补采可靠）。
+agent 出稿时仍会带 `--force` 重新采集，所以 19:00 之后的工作也不会漏：
 
 ```bash
 mkdir -p ~/Library/LaunchAgents
-cat > ~/Library/LaunchAgents/com.wanglang.daily-report.plist <<'EOF'
+cat > ~/Library/LaunchAgents/com.example.daily-report.plist <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>Label</key><string>com.wanglang.daily-report</string>
+  <key>Label</key><string>com.example.daily-report</string>
   <key>ProgramArguments</key>
   <array>
     <string>/usr/bin/python3</string>
@@ -88,18 +92,22 @@ cat > ~/Library/LaunchAgents/com.wanglang.daily-report.plist <<'EOF'
   <key>StartCalendarInterval</key><dict><key>Hour</key><integer>19</integer><key>Minute</key><integer>0</integer></dict>
 </dict></plist>
 EOF
-launchctl load ~/Library/LaunchAgents/com.wanglang.daily-report.plist
+launchctl load ~/Library/LaunchAgents/com.example.daily-report.plist
 ```
 
 ## 已知限制
 
-- **Claude Code / Codex 的会话格式会变**。哪天 `[ok]` 里的 sessions 突然变 0，先看
-  `~/.claude/projects` 和 `~/.codex/sessions` 的目录结构有没有动。
+- **Claude Code / Codex 的会话格式会变**。窗口内有会话文件被改过但解析不出内容时，脚本会打
+  `[warn] <源>: ... 会话格式可能变了`，按提示检查 `~/.claude/projects`、`~/.codex/sessions` 的结构。
+  此时 sessions 为 0 不代表当天没有会话。
 - **DSH 会话是 zstd**，需要 `brew install zstd`；没装会自动跳过并提示。
 - 跨天的长会话会算进它覆盖的每一天（区间查询时表现为跨多天的 span），这是有意的：
-  那天的日报里确实该提它。
-- `--date` 是区间结束日，`--days N` 包含结束日并向前取 N 个自然日。自然周请按周一到目标日期的天数计算；上周用上周日作为结束日并传 `--days 7`。
-- 证据包可能含敏感会话摘要。检查证据后再写日报，避免复制内网地址、密码、token 或其他凭据。已有证据包不会自动覆盖；确认覆盖时传 `--force`。
+  那天的日报里确实该提它。三个会话源都按文件 mtime 预筛，Codex 按开始日分目录也不会漏掉跨天会话。
+- 会话摘要是有损的：每段只保留头尾各 2 条用户消息（中间标注省略条数）和最后几条结论。
+- `--date` 是区间结束日（可写 `today` / `yesterday`），`--days N` 包含结束日并向前取 N 个自然日。
+  自然周用 `--week`（周一至今天）或 `--last-week`（上周一至上周日），不要手算天数；二者不能和 `--date` / `--days` 同用。
+- 证据包可能含敏感会话摘要。检查证据后再写日报，避免复制内网地址、密码、token 或其他凭据。已有证据包不会自动覆盖；
+  确认覆盖时传 `--force`（证据包是可重新生成的快照，开头写有生成时间）。
 - `config.dirty` 只在采集区间包含今天时自动采集当前工作区状态；历史或未来区间会忽略。显式
   传 `--dirty` 始终采集运行时快照，脚本会警告它不代表所选历史/未来日期的状态。
 - `--dirty` 用 `--porcelain -uno` 只扫 tracked 文件：untracked 文件不统计（大仓库里遍历磁盘太慢），
