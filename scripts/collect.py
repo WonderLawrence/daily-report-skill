@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """collect.py — 采集一天（或 N 天）的「Git 提交 + Agent 会话」证据，输出喂给 LLM 写日报的 Markdown。
 
-只依赖标准库；DSH 会话是 zstd 压缩，走 `zstd -dc`，没装就自动跳过。
+只依赖标准库；DSH（DeepSeek Harness）会话是 zstd 压缩，走 `zstd -dc`，没装就自动跳过。
 
     python3 collect.py                          # 今天
     python3 collect.py --date 2026-10-16        # 指定日（作为区间结束日）
@@ -138,6 +138,23 @@ def blocks_text(content) -> str:
         return " ".join(b.get("text", "") for b in content
                         if isinstance(b, dict) and b.get("type") == "text")
     return ""
+
+
+def user_text(content) -> str:
+    """用户消息的可见正文。block 数组逐块剔除注入块再拼接：
+    IDE 上下文（<ide_opened_file> 等）和真实请求常在同一条消息里，整条判断会把请求一并吞掉。"""
+    if isinstance(content, list):
+        parts = [b.get("text", "").strip() for b in content
+                 if isinstance(b, dict) and b.get("type") == "text"]
+        return " ".join(p for p in parts if not is_injected(p))
+    return blocks_text(content).strip()
+
+
+def _mtime(path: Path) -> float | None:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return None
 
 
 # skill 展开、subagent 回传、系统注入都会伪装成"用户消息"，写日报时是噪音
@@ -277,11 +294,12 @@ def git_patch_id(repo: Path, sha: str) -> str | None:
     )
     if show.returncode != 0 or not show.stdout:
         return None
+    # show.stdout is bytes (--binary diffs aren't valid text), so stay in bytes mode here.
     patch = subprocess.run(["git", "patch-id", "--stable"], input=show.stdout,
-                           capture_output=True, text=True)
+                           capture_output=True)
     if patch.returncode != 0 or not patch.stdout.strip():
         return None
-    return patch.stdout.split()[0]
+    return patch.stdout.decode("ascii", "replace").split()[0]
 
 
 def dirty_state(repo: Path, now: datetime) -> dict | None:
@@ -330,17 +348,24 @@ def claude_project_map() -> dict[str, str]:
     return _PROJECT_MAP
 
 
-def claude_sessions(start, end, tz) -> list[dict]:
+def _scan_candidate(path: Path, start, end, diag: Counter | None) -> bool:
+    """mtime 预筛：只解析可能含窗口内事件的文件，并登记窗口内被改动的文件数（格式漂移告警用）。"""
+    mtime = _mtime(path)
+    if mtime is None or mtime < start.timestamp() - 86400:
+        return False
+    if diag is not None and start.timestamp() <= mtime < end.timestamp():
+        diag["files"] += 1
+    return True
+
+
+def claude_sessions(start, end, tz, diag: Counter | None = None) -> list[dict]:
     base = HOME / ".claude" / "projects"
     if not base.is_dir():
         return []
     pmap = claude_project_map()
     out = []
     for f in base.glob("*/*.jsonl"):
-        try:
-            if f.stat().st_mtime < start.timestamp() - 86400:
-                continue
-        except OSError:
+        if not _scan_candidate(f, start, end, diag):
             continue
         users, concl, tools, files = [], [], Counter(), set()
         first = last = cwd = None
@@ -353,13 +378,15 @@ def claude_sessions(start, end, tz) -> list[dict]:
                 ts = parse_ts(d.get("timestamp"), tz)
                 if ts is None or not (start <= ts < end):
                     continue
+                if diag is not None:
+                    diag["events"] += 1
                 first = first or ts
                 last = ts
                 cwd = cwd or d.get("cwd")
                 kind = d.get("type")
                 msg = d.get("message") or {}
                 if kind == "user":
-                    txt = blocks_text(msg.get("content")).strip()
+                    txt = user_text(msg.get("content"))
                     if not is_injected(txt):
                         users.append(one_line(txt, 220))
                 elif kind == "assistant":
@@ -383,17 +410,15 @@ def claude_sessions(start, end, tz) -> list[dict]:
 
 
 # ---------------- 3. Codex CLI ----------------
-def codex_sessions(start, end, tz) -> list[dict]:
+def codex_sessions(start, end, tz, diag: Counter | None = None) -> list[dict]:
     base = HOME / ".codex" / "sessions"
     if not base.is_dir():
         return []
-    files_on_disk: list[Path] = []
-    day = start.date()
-    while day <= end.date():
-        files_on_disk += list(base.glob(f"{day:%Y/%m/%d}/*.jsonl"))
-        day += timedelta(days=1)
     out = []
-    for f in files_on_disk:
+    # 目录按会话开始日分，跨天会话在后续日期的目录里找不到，所以和其他源一样按 mtime 预筛
+    for f in base.glob("*/*/*/*.jsonl"):
+        if not _scan_candidate(f, start, end, diag):
+            continue
         users, concl, tools = [], [], Counter()
         first = last = cwd = None
         with f.open(encoding="utf-8", errors="replace") as fh:
@@ -402,15 +427,18 @@ def codex_sessions(start, end, tz) -> list[dict]:
                     d = json.loads(line)
                 except Exception:
                     continue
+                pl = d.get("payload") or {}
+                if d.get("type") == "session_meta":
+                    # 跨天会话的 session_meta 落在窗口之前，cwd 不能依赖窗口过滤
+                    cwd = cwd or pl.get("cwd")
                 ts = parse_ts(d.get("timestamp"), tz)
                 if ts is None or not (start <= ts < end):
                     continue
+                if diag is not None:
+                    diag["events"] += 1
                 first = first or ts
                 last = ts
-                pl = d.get("payload") or {}
-                if d.get("type") == "session_meta":
-                    cwd = cwd or pl.get("cwd")
-                elif d.get("type") == "event_msg":
+                if d.get("type") == "event_msg":
                     if pl.get("type") == "user_message":
                         txt = str(pl.get("message", ""))
                         if not is_injected(txt):
@@ -429,7 +457,7 @@ def codex_sessions(start, end, tz) -> list[dict]:
 
 
 # ---------------- 4. DSH（zstd 压缩的 v4 jsonl） ----------------
-def dsh_sessions(start, end, tz) -> list[dict]:
+def dsh_sessions(start, end, tz, diag: Counter | None = None) -> list[dict]:
     base = HOME / ".dsh" / "sessions"
     if not base.is_dir() or not shutil.which("zstd"):
         if base.is_dir() and not shutil.which("zstd"):
@@ -437,10 +465,7 @@ def dsh_sessions(start, end, tz) -> list[dict]:
         return []
     out = []
     for f in base.glob("*/session-*/*.jsonl.zstd"):
-        try:
-            if f.stat().st_mtime < start.timestamp() - 86400:
-                continue
-        except OSError:
+        if not _scan_candidate(f, start, end, diag):
             continue
         proc = subprocess.run(["zstd", "-dc", str(f)], capture_output=True, text=True)
         if proc.returncode != 0:
@@ -460,10 +485,12 @@ def dsh_sessions(start, end, tz) -> list[dict]:
             ts = epoch_ms(d.get("time"), tz) or parse_ts(d.get("createdAt"), tz)
             if ts is None or not (start <= ts < end):
                 continue
+            if diag is not None:
+                diag["events"] += 1
             first = first or ts
             last = ts
             if t == "user/message":
-                txt = blocks_text(data.get("content")).strip()
+                txt = user_text(data.get("content"))
                 if not is_injected(txt):
                     users.append(one_line(txt, 220))
             elif t == "assistant/message":
@@ -630,10 +657,13 @@ def _period_word(days: int) -> str:
 
 
 def render(start, end, cfg, commits, sessions, truncated, dirty=None,
-           scope=None, days=1, extras=0) -> str:
+           scope=None, days=1, extras=0, generated=None, period_word=None) -> str:
     span = start.strftime("%Y-%m-%d") if start.date() == (end - timedelta(seconds=1)).date() \
         else f"{start:%Y-%m-%d} → {(end - timedelta(seconds=1)):%Y-%m-%d}"
     L = [f"# 工作证据 {span}", ""]
+    if generated:
+        # 证据包是某一时刻的快照；之后再产生的提交/会话不在里面，重跑要加 --force
+        L += [f"_生成于 {generated:%Y-%m-%d %H:%M}（UTC{generated:%z}）_", ""]
 
     if scope:
         L.append("## 采集范围")
@@ -700,7 +730,10 @@ def render(start, end, cfg, commits, sessions, truncated, dirty=None,
         dup = f" · ↻ 同开场白 {s['dup_n']} 段" if s.get("dup_n") else ""
         L.append(f"### [{s['agent']}] {proj} · {tspan} · {s['steps']} 步{dup}")
         if s["users"]:
-            L.append("- 用户：" + " / ".join(s["users"][:4]))
+            users = s["users"]
+            if len(users) > 4:  # 长会话的后半段常有转向，取头尾而不是只取开头
+                users = users[:2] + [f"…（省略 {len(users) - 4} 条）"] + users[-2:]
+            L.append("- 用户：" + " / ".join(users))
         if s["concl"]:
             for c in s["concl"][-2:]:
                 L.append(f"- 结论：{c}")
@@ -728,25 +761,23 @@ def render(start, end, cfg, commits, sessions, truncated, dirty=None,
             L.append(f"- [{d['repo']}] {d['files']} 个文件改动；最近一次提交 {age}{mark}")
         L.append("")
 
-    period = _period_word(days)
+    period = period_word or _period_word(days)
     L.append("## D. 写稿提示")
-    L.append(f"按 REFERENCE.md 的「结构选择」和「归纳流程」写{period}：")
-    L.append("1. 先建立主题簇——同一目标下的功能、修复、重构、回退合并成一个主题，再起标题；"
-             "不要按 commit 前缀分栏。")
-    L.append("2. 只写本文件出现过的事实；动机必须有会话或提交证据。")
-    L.append("3. 已提交的 revert 在主题内交代「为什么回退、最终保留什么」；仅在会话中被否决的方案"
-             "同样写进主题，不能包装成成果。")
-    L.append("4. 状态分开写：已合并 / 仅本地 / 已回退 / 待决策。")
-    L.append("5. A 为空但 B 有内容时，不要写「没有产出」。")
-    L.append("6. `可能相关提交` 只是文件路径交集给出的线索，不是因果，确认不了就别写。")
+    L.append(f"写{period}前先读 REFERENCE.md（模板、分栏依据、线索），归纳流程和硬性约束见 SKILL.md；"
+             "只写本文件出现过的事实。")
     return "\n".join(L)
 
 
 # ---------------- 7. 流程编排 ----------------
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--date", help="区间结束日 YYYY-MM-DD，默认今天")
-    ap.add_argument("--days", type=int, default=1, help="包含结束日在内向前取几天（周报用 7）")
+    ap.add_argument("--date", help="区间结束日 YYYY-MM-DD，也可写 today / yesterday；默认今天")
+    ap.add_argument("--days", type=int, default=None,
+                    help="包含结束日在内向前取几天（默认 1；最近 7 天用 7）")
+    week = ap.add_mutually_exclusive_group()
+    week.add_argument("--week", action="store_true", help="本周：本周一至今天（不能和 --date/--days 同用）")
+    week.add_argument("--last-week", action="store_true",
+                      help="上周：上周一至上周日（不能和 --date/--days 同用）")
     ap.add_argument("--config", default=str(DEFAULT_CONFIG),
                     help="配置文件（默认 DAILY_REPORT_CONFIG、用户配置或工作区配置）")
     ap.add_argument("--repos-root", help="覆盖 config 的 repos_root")
@@ -768,18 +799,35 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
-def resolve_period(date_arg: str | None, days: int, tz: timezone) -> tuple[datetime, datetime]:
-    """Return a half-open date interval [start, end) in the configured timezone."""
-    if date_arg:
+def resolve_period(date_arg: str | None, days: int, tz: timezone, week: str | None = None,
+                   today=None) -> tuple[datetime, datetime]:
+    """Return a half-open date interval [start, end) in the configured timezone.
+
+    week: "this" = 本周一至今天，"last" = 上周一至上周日；此时忽略 date_arg / days。
+    today 仅供测试注入。
+    """
+    today = today or datetime.now(tz).date()
+    if week:
+        monday = today - timedelta(days=today.weekday())
+        if week == "last":
+            start_day, end_day = monday - timedelta(days=7), monday - timedelta(days=1)
+        else:
+            start_day, end_day = monday, today
+        start = datetime.combine(start_day, datetime.min.time(), tz)
+        return start, datetime.combine(end_day + timedelta(days=1), datetime.min.time(), tz)
+    if date_arg in ("today", "yesterday"):
+        end_day = today - timedelta(days=1 if date_arg == "yesterday" else 0)
+    elif date_arg:
         try:
             parsed = datetime.strptime(date_arg, "%Y-%m-%d")
             if parsed.strftime("%Y-%m-%d") != date_arg:
                 raise ValueError
             end_day = parsed.date()
         except ValueError as e:
-            raise ValueError(f"--date 需要 YYYY-MM-DD 格式，收到 {date_arg!r}") from e
+            raise ValueError(
+                f"--date 需要 YYYY-MM-DD 格式（或 today / yesterday），收到 {date_arg!r}") from e
     else:
-        end_day = datetime.now(tz).date()
+        end_day = today
     end = datetime.combine(end_day + timedelta(days=1), datetime.min.time(), tz)
     start = end - timedelta(days=days)
     return start, end
@@ -827,16 +875,33 @@ def collect_commits(repos: list[Path], start: datetime, end: datetime,
     return commits, alias_hits
 
 
+SESSION_SOURCES = (
+    ("claude", claude_sessions, "~/.claude/projects"),
+    ("codex", codex_sessions, "~/.codex/sessions"),
+    ("dsh", dsh_sessions, "~/.dsh/sessions"),
+)
+
+
+def warn_format_drift(name: str, location: str, diag: Counter, found: int) -> None:
+    """会话格式变了会让解析静默返回 0 段；用「文件被改过但没事件 / 有事件但没内容」识别出来。"""
+    if diag["files"] and not diag["events"]:
+        print(f"[warn] {name}: 窗口内有 {diag['files']} 个会话文件被修改，但没解析出任何事件；"
+              f"会话格式可能变了，检查 {location}。这不代表当天没有会话", file=sys.stderr)
+    elif diag["events"] and not found:
+        print(f"[warn] {name}: 解析到 {diag['events']} 条事件，但没提取出任何用户消息或工具调用；"
+              f"会话格式可能变了，检查 {location}", file=sys.stderr)
+
+
 def collect_sessions(start: datetime, end: datetime, tz: timezone, sources: dict,
                      disabled: bool, commits: list[dict], limit: int) -> tuple[list[dict], bool]:
     sessions = []
     if not disabled:
-        if sources.get("claude", True):
-            sessions.extend(claude_sessions(start, end, tz))
-        if sources.get("codex", True):
-            sessions.extend(codex_sessions(start, end, tz))
-        if sources.get("dsh", True):
-            sessions.extend(dsh_sessions(start, end, tz))
+        for name, parse, location in SESSION_SOURCES:
+            if sources.get(name, True):
+                diag: Counter = Counter()
+                found = parse(start, end, tz, diag)
+                warn_format_drift(name, location, diag, len(found))
+                sessions.extend(found)
 
     by_id: dict[tuple, dict] = {}
     for session in sessions:
@@ -897,11 +962,11 @@ def collect_dirty_state(repos: list[Path], configured: bool, explicit: bool,
     return states, bool(repos)
 
 
-def evidence_path(cfg: dict, args, start: datetime) -> tuple[Path, Path]:
+def evidence_path(cfg: dict, args, start: datetime, days: int) -> tuple[Path, Path]:
     default_dir = Path(cfg["reports_dir"]).expanduser() / ".evidence"
     if args.out:
         return default_dir, Path(args.out).expanduser()
-    name = f"{start:%Y%m%d}" + (f"-{args.days}d" if args.days > 1 else "") + ".md"
+    name = f"{start:%Y%m%d}" + (f"-{days}d" if days > 1 else "") + ".md"
     return default_dir, default_dir / name
 
 
@@ -946,8 +1011,10 @@ def main() -> int:
     ap = build_parser()
     a = ap.parse_args()
 
-    if a.days < 1:
+    if a.days is not None and a.days < 1:
         ap.error("--days 必须大于等于 1")
+    if (a.week or a.last_week) and (a.date or a.days is not None):
+        ap.error("--week / --last-week 不能和 --date / --days 同时使用")
 
     config_path = Path(a.config).expanduser()
     if not config_path.exists():
@@ -974,11 +1041,13 @@ def main() -> int:
     tz = timezone(timedelta(hours=offset))
 
     try:
-        start, end = resolve_period(a.date, a.days, tz)
+        start, end = resolve_period(a.date, 1 if a.days is None else a.days, tz,
+                                    week="this" if a.week else "last" if a.last_week else None)
         author_re = resolve_author_regex(a, cfg)
     except ValueError as e:
         ap.error(str(e))
 
+    days = (end - start).days
     repos_root = Path(a.repos_root or cfg["repos_root"])
     src = cfg.get("sources", {})
     git_enabled = not a.no_git and src.get("git", True)
@@ -1026,7 +1095,8 @@ def main() -> int:
         "dirty": dirty_scanned,
     }
     text = render(start, end, cfg, shown, sessions, truncated, dirty, scope,
-                  days=a.days, extras=extras)
+                  days=days, extras=extras, generated=now,
+                  period_word="周报" if a.week or a.last_week else None)
 
     do_redact = (not a.no_redact) and bool(cfg.get("redact", True))
     if do_redact:
@@ -1037,7 +1107,7 @@ def main() -> int:
         print(f"[ok] {len(shown)} commits, {len(sessions)} sessions", file=sys.stderr)
         return 0
 
-    evidence_dir, out = evidence_path(cfg, a, start)
+    evidence_dir, out = evidence_path(cfg, a, start, days)
     write_error = write_evidence(out, text, a.force)
     if write_error:
         print(f"[error] {write_error}", file=sys.stderr)
