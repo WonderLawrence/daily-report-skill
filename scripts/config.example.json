@@ -1,0 +1,17 @@
+{
+  "author_emails": [],
+  "repos_root": "~/Project",
+  "reports_dir": "~/Documents/reports",
+  "utc_offset_hours": 8,
+  "max_sessions": 30,
+  "dirty": false,
+  "stale_days": 7,
+  "sources": {
+    "git": true,
+    "claude": true,
+    "codex": true,
+    "dsh": true
+  },
+  "redact": true,
+  "evidence_keep": 30
+}
