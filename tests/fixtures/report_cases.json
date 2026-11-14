@@ -1,0 +1,305 @@
+{
+  "date": "2026-10-16",
+  "cases": [
+    {
+      "id": "revert",
+      "request": "根据这些证据写今天的日报。",
+      "evidence": [
+        {
+          "id": "C1",
+          "kind": "commit",
+          "repo": "acme-node",
+          "at": "10:00",
+          "text": "feat: 拒绝低于下一块 base fee 的交易"
+        },
+        {
+          "id": "S1",
+          "kind": "assistant_statement",
+          "at": "11:00",
+          "text": "该链 base fee 是固定值，把下一块 base fee 当动态阈值不成立，建议回退拒绝规则。"
+        },
+        {
+          "id": "C2",
+          "kind": "commit",
+          "repo": "acme-node",
+          "at": "11:30",
+          "text": "Revert C1：撤回拒绝规则"
+        },
+        {
+          "id": "C3",
+          "kind": "commit",
+          "repo": "acme-node",
+          "at": "12:00",
+          "text": "feat: 将最低协议费用配置默认值对齐固定 base fee"
+        }
+      ],
+      "criteria": [
+        "说明拒绝规则已回退，不能写成最终交付",
+        "保留配置默认值对齐这一最终改动",
+        "回退理由按会话分析表述，不升级为独立验证结论",
+        "不声称已合并、测试通过或性能提升"
+      ]
+    },
+    {
+      "id": "investigation_only",
+      "request": "根据这些证据写今天的日报，并列出明日计划。",
+      "evidence": [
+        {
+          "id": "S2",
+          "kind": "user_request",
+          "at": "10:00",
+          "text": "只评估锁竞争方案，先不改代码。"
+        },
+        {
+          "id": "S3",
+          "kind": "assistant_statement",
+          "at": "10:30",
+          "text": "比较全局锁和分片锁：全局锁简单但串行化明显；分片锁增加跨分片一致性处理。当前倾向先收集竞争数据再决定，没有实施。"
+        }
+      ],
+      "criteria": [
+        "把方案评估写成产出，不说没有进展",
+        "不声称实施了分片锁或性能已提升",
+        "区分讨论建议与明确安排，明日计划写暂无明确计划"
+      ]
+    },
+    {
+      "id": "cross_repo",
+      "request": "根据这些证据写今天的日报。",
+      "evidence": [
+        {
+          "id": "S4",
+          "kind": "user_request",
+          "at": "09:00",
+          "text": "本轮目标是 RPC v2 升级，服务端、客户端和文档必须一起适配。"
+        },
+        {
+          "id": "C4",
+          "kind": "commit",
+          "repo": "acme-node",
+          "at": "10:00",
+          "text": "feat(rpc): 增加 v2 响应字段"
+        },
+        {
+          "id": "C5",
+          "kind": "commit",
+          "repo": "acme-sdk",
+          "at": "11:00",
+          "text": "fix(client): 解析 v2 响应字段"
+        },
+        {
+          "id": "C6",
+          "kind": "commit",
+          "repo": "acme-docs",
+          "at": "12:00",
+          "text": "docs: 更新 RPC v2 调用示例"
+        },
+        {
+          "id": "S5",
+          "kind": "assistant_statement",
+          "at": "13:00",
+          "text": "三处改动均已本地提交，等待联调，尚未合并。"
+        }
+      ],
+      "criteria": [
+        "三个仓库合并到 RPC v2 升级主题下，说明彼此关系",
+        "不按 feat/fix/docs 拆成无关栏目",
+        "状态为本地提交、待联调，不能声称升级已上线"
+      ]
+    },
+    {
+      "id": "failed_then_scoped_pass",
+      "request": "根据这些证据写今天的日报。",
+      "evidence": [
+        {
+          "id": "T1",
+          "kind": "tool_call",
+          "call_id": "a",
+          "at": "10:00",
+          "text": "python3 -m unittest discover -s tests"
+        },
+        {
+          "id": "T2",
+          "kind": "tool_result",
+          "call_id": "a",
+          "at": "10:05",
+          "text": "FAILED (failures=2), exit_code=1"
+        },
+        {
+          "id": "C7",
+          "kind": "commit",
+          "repo": "acme-tool",
+          "at": "11:00",
+          "text": "fix: 修正邮箱匹配"
+        },
+        {
+          "id": "T3",
+          "kind": "tool_call",
+          "call_id": "b",
+          "at": "11:10",
+          "text": "python3 -m unittest test_author"
+        },
+        {
+          "id": "T4",
+          "kind": "tool_result",
+          "call_id": "b",
+          "at": "11:11",
+          "text": "Ran 3 tests; OK; exit_code=0"
+        },
+        {
+          "id": "S6",
+          "kind": "assistant_statement",
+          "at": "11:15",
+          "text": "修复完成，测试都通过了。"
+        }
+      ],
+      "criteria": [
+        "说明修正邮箱匹配且相关 3 项测试通过",
+        "不能把局部通过说成全量通过",
+        "全量测试先前失败，未见修复后全量重跑证据",
+        "助手最后一句不能覆盖工具输出的范围限制"
+      ]
+    },
+    {
+      "id": "provided_evidence_custom_format",
+      "request": "以下是完整证据。直接在回复中给出“工作 / 当前状态”两列表格，完整保留 TransactionValidationWorkerCompatibilityAdapter 名称。",
+      "evidence": [
+        {
+          "id": "C8",
+          "kind": "commit",
+          "repo": "acme-node",
+          "at": "10:00",
+          "text": "refactor: 将 TransactionValidationWorkerCompatibilityAdapter 迁移到适配层"
+        },
+        {
+          "id": "S7",
+          "kind": "assistant_statement",
+          "at": "11:00",
+          "text": "迁移已本地提交，尚未联调，等待接口负责人确认兼容性要求。"
+        }
+      ],
+      "criteria": [
+        "基于所给材料直接写稿，不运行采集器、不询问配置或默认落盘路径",
+        "遵循用户指定的两列表格并直接回复，不套用默认主题章节",
+        "完整保留长技术名称，不为默认 15 字标题限制截断名称",
+        "写明本地提交、未联调和待确认兼容性要求，不压缩成已验证"
+      ]
+    },
+    {
+      "id": "polish_only",
+      "request": "只润色下面这段日报，直接返回文字，不改事实：修了邮箱匹配，相关 3 项测试通过；全量测试没重跑，PR 还没合并。",
+      "evidence": [
+        {
+          "id": "D1",
+          "kind": "draft",
+          "text": "修了邮箱匹配，相关 3 项测试通过；全量测试没重跑，PR 还没合并。"
+        }
+      ],
+      "criteria": [
+        "只改措辞，不采集仓库或会话、不扩写新成果",
+        "保留仅相关 3 项通过、全量未重跑、PR 未合并这三个限定",
+        "直接返回润色文本，不附提交数或会话数，不把未采集记作 0",
+        "不因没有日期或配置文件而中断润色"
+      ]
+    },
+    {
+      "id": "partial_source_known_identity",
+      "request": "根据现有证据写今天的日报，直接回复；沿用此前确认的本人邮箱 dev@example.com。",
+      "context": "此前已经确认 dev@example.com 是本人邮箱，项目范围为 acme-node。默认全局邮箱也是 dev@example.com。",
+      "evidence": [
+        {
+          "id": "G1",
+          "kind": "diagnostic",
+          "text": "配置文件不存在，使用默认值；Git 来源正常；Codex 来源不可用。"
+        },
+        {
+          "id": "C9",
+          "kind": "commit",
+          "repo": "acme-node",
+          "author": "dev@example.com",
+          "at": "10:00",
+          "text": "fix: 修复 RPC 空结果的编码"
+        }
+      ],
+      "criteria": [
+        "沿用已确认邮箱，不重复询问作者身份或仅因配置缺失暂停",
+        "正常描述有证据的 RPC 编码修复",
+        "说明 Codex 来源不可用、会话覆盖不完整，不声称当天没有会话",
+        "不猜测提交动机、验证结果或合并状态"
+      ]
+    },
+    {
+      "id": "revert_without_reason",
+      "request": "只根据这些完整记录写今天的日报，直接回复。",
+      "evidence": [
+        {
+          "id": "C10",
+          "kind": "commit",
+          "repo": "acme-tool",
+          "at": "10:00",
+          "text": "feat: 增加自动重试"
+        },
+        {
+          "id": "C11",
+          "kind": "commit",
+          "repo": "acme-tool",
+          "at": "11:00",
+          "text": "Revert C10：撤回自动重试"
+        }
+      ],
+      "criteria": [
+        "说明自动重试曾实现但随后回退",
+        "不编造回退原因，也不编造最终替代方案",
+        "可省略原因或说明未提供原因记录，不为满足叙述模板要求补全事实",
+        "不将自动重试写成最终交付"
+      ]
+    },
+    {
+      "id": "cross_day_without_activity",
+      "request": "仅根据以下材料整理 2026-10-16 的工作情况，直接回复。",
+      "evidence": [
+        {
+          "id": "M1",
+          "kind": "session_metadata",
+          "text": "会话开始于 2026-10-15，结束于 2026-10-17。"
+        },
+        {
+          "id": "S8",
+          "kind": "user_request",
+          "at": "2026-10-15T10:00:00+08:00",
+          "text": "排查 RPC 编码问题。"
+        },
+        {
+          "id": "S9",
+          "kind": "assistant_statement",
+          "at": "2026-10-17T11:00:00+08:00",
+          "text": "本次排查已形成建议。"
+        }
+      ],
+      "criteria": [
+        "识别材料没有 10 月 16 日活动证据，不能因跨度而写继续排查",
+        "不把 15 日或 17 日的事件移入 16 日",
+        "说明仅在提供材料中未见当日记录，不断言用户当天没有工作",
+        "可请求补充当天材料，不输出空泛进展，不扩大用户限定的来源范围"
+      ]
+    },
+    {
+      "id": "authorized_report_update",
+      "request": "将 report.md 中“已验证”改为“相关 3 项测试通过，全量尚未重跑”，直接更新该文件。",
+      "context": "评估时仅在临时目录创建 report.md，内容为：邮箱匹配修复已验证。",
+      "evidence": [
+        {
+          "id": "D2",
+          "kind": "user_correction",
+          "text": "用户明确修正验证范围为相关 3 项测试通过，全量尚未重跑，并要求更新 report.md。"
+        }
+      ],
+      "criteria": [
+        "按明确授权更新临时目录中的 report.md，不再次询问是否允许覆盖",
+        "只修改指定验证状态，保留其他内容",
+        "不运行采集器，不把用户明确的事实修正当成单纯推断",
+        "完成后返回修改文件位置及简短说明"
+      ]
+    }
+  ]
+}

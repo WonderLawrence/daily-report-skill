@@ -242,6 +242,59 @@ class TestCli(unittest.TestCase):
         self.assertIn("feat: mine", r.stdout)
         self.assertNotIn("feat: theirs", r.stdout)
 
+    def test_author_filter_requires_exact_email(self):
+        repo = make_repo(self.base, "exactemail")
+        identities = [
+            ("Test User", "dev@example.com"),
+            ("Alternate", "alt@example.com"),
+            ("Colleague", "otherdev@example.com"),
+            ("Colleague", "dev@example.com.evil"),
+            ("Colleague", "dev@exampleXcom"),
+            ("dev@example.com", "colleague@example.com"),
+        ]
+        for i, (name, email) in enumerate(identities):
+            git(repo, "config", "user.name", name)
+            git(repo, "config", "user.email", email)
+            commit(repo, f"feat: identity {i}", committed="2026-10-16T10:00:00+08:00")
+        for emails, expected in [(["dev@example.com", "alt@example.com"], {0, 1}),
+                                 ([], {0})]:
+            with self.subTest(author_emails=emails):
+                cfg = json.loads(self.cfg.read_text())
+                cfg["author_emails"] = emails
+                self.cfg.write_text(json.dumps(cfg))
+                r = run(["--date", "2026-10-16", "--no-sessions", "--print"], env=self.env)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                for i in range(len(identities)):
+                    self.assertEqual(f"feat: identity {i}" in r.stdout, i in expected, r.stdout)
+
+    def test_global_email_with_regex_characters_matches_literally(self):
+        cfg = json.loads(self.cfg.read_text())
+        cfg["author_emails"] = []
+        self.cfg.write_text(json.dumps(cfg))
+        (self.base / ".gitconfig").write_text(
+            "[user]\n\tname = Test User\n\temail = dev+work@example.com\n")
+        repo = make_repo(self.base, "literalemail", email="dev+work@example.com")
+        commit(repo, "feat: mine", committed="2026-10-16T10:00:00+08:00")
+        git(repo, "config", "user.name", "Colleague")
+        git(repo, "config", "user.email", "devwork@exampleXcom")
+        commit(repo, "feat: theirs", committed="2026-10-16T11:00:00+08:00")
+        r = run(["--date", "2026-10-16", "--no-sessions", "--print"], env=self.env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("feat: mine", r.stdout)
+        self.assertNotIn("feat: theirs", r.stdout)
+
+    def test_author_regex_overrides_email_config(self):
+        repo = make_repo(self.base, "authorregex")
+        commit(repo, "feat: mine", committed="2026-10-16T10:00:00+08:00")
+        git(repo, "config", "user.name", "Colleague")
+        git(repo, "config", "user.email", "colleague@example.com")
+        commit(repo, "feat: theirs", committed="2026-10-16T11:00:00+08:00")
+        r = run(["--date", "2026-10-16", "--author", r"^Colleague <.*@example\.com>$",
+                 "--no-sessions", "--print"], env=self.env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("feat: theirs", r.stdout)
+        self.assertNotIn("feat: mine", r.stdout)
+
     def test_redaction_on_by_default(self):
         repo = make_repo(self.base, "tokrepo")
         commit(repo, "fix: rotate ghp_abcdefghijklmnopqrstuvwxyz0123456789",
@@ -518,6 +571,23 @@ class TestRender(unittest.TestCase):
         sess = self.session(["hi"])
         sess["id"] = "1b6c7937-f8cf-4e4a-ac46-dd5a5c20381d"
         self.assertIn("· id 5c20381d", self.render([sess]))
+
+    def test_single_day_session_header_keeps_time_only(self):
+        out = self.render([self.session(["hi"])])
+        self.assertIn("· 12:00–12:05 ·", out)
+
+    def test_multiday_report_dates_same_day_sessions(self):
+        for days in (2, 7):
+            with self.subTest(days=days):
+                out = collect.render(START, START + timedelta(days=days), {}, [],
+                                     [self.session(["hi"])], False, days=days)
+                self.assertIn("· 10-16 12:00–10-16 12:05 ·", out)
+
+    def test_multiday_report_dates_both_ends_of_overnight_session(self):
+        sess = self.session(["hi"])
+        sess["end"] += timedelta(days=1)
+        out = collect.render(START, START + timedelta(days=7), {}, [], [sess], False, days=7)
+        self.assertIn("· 10-16 12:00–10-17 12:05 ·", out)
 
     def test_header_carries_generation_time(self):
         out = self.render([], generated=datetime(2026, 10, 18, 19, 5, tzinfo=TZ))

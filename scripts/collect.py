@@ -44,10 +44,10 @@ DEFAULTS = {
     "repos_root": "~/Project",
     "reports_dir": "~/Documents/reports",
     "utc_offset_hours": 8,
-    "max_sessions": 30,           # 超出截断，避免 prompt 爆炸
+    "max_sessions": 30,           # 详细摘要额度；完整索引和结构化证据不截断
     "stale_days": 7,
     "redact": True,               # 证据落盘前脱敏（token/私钥/内网 IP）
-    "evidence_keep": 30,          # 保留最近 N 份证据包，0 = 不清理
+    "evidence_keep": 30,          # 保留最近 N 份最新视图；不清理历史快照
     "sources": {"git": True, "claude": True, "codex": True, "dsh": True},
 }
 
@@ -121,7 +121,7 @@ def parse_ts(s: str, tz: timezone) -> datetime | None:
 def epoch_ms(ms, tz: timezone) -> datetime | None:
     try:
         return datetime.fromtimestamp(int(ms) / 1000, tz)
-    except (TypeError, ValueError, OSError):
+    except (TypeError, ValueError, OSError, OverflowError):
         return None
 
 
@@ -212,7 +212,7 @@ def discover_repos(root: Path, depth: int = 2) -> list[Path]:
     return sorted(found)
 
 
-def git_commits(repo: Path, start, end) -> list[dict]:
+def git_commits(repo: Path, start, end, diag: Counter | None = None) -> list[dict]:
     """读取日期区间内的提交，按 committer date 归属。"""
     fmt = "%H%x1f%h%x1f%cd%x1f%ad%x1f%an <%ae>%x1f%s"
     base = ["git", "-C", str(repo), "log", "--exclude=refs/stash", "--all", "--no-merges"]
@@ -227,8 +227,12 @@ def git_commits(repo: Path, start, end) -> list[dict]:
               file=sys.stderr)
         result = subprocess.run(base + tail, capture_output=True, text=True)
     if result.returncode != 0:
+        if diag is not None:
+            diag["failed_files"] += 1
         print(f"[warn] 无法读取仓库 {repo}: {(result.stderr or '').strip()}", file=sys.stderr)
         return []
+    if diag is not None:
+        diag["ok_files"] += 1
     if not result.stdout.strip():
         return []
 
@@ -340,7 +344,7 @@ def claude_project_map() -> dict[str, str]:
                         d = json.loads(line)
                     except Exception:
                         continue
-                    if d.get("cwd"):
+                    if isinstance(d, dict) and isinstance(d.get("cwd"), str):
                         _PROJECT_MAP[f.parent.name] = d["cwd"]
                         break
         except OSError:
@@ -349,170 +353,230 @@ def claude_project_map() -> dict[str, str]:
 
 
 def _scan_candidate(path: Path, start, end, diag: Counter | None) -> bool:
-    """mtime 预筛：只解析可能含窗口内事件的文件，并登记窗口内被改动的文件数（格式漂移告警用）。"""
+    """Prefilter by mtime; copied files with unreliable mtimes may need manual review."""
     mtime = _mtime(path)
-    if mtime is None or mtime < start.timestamp() - 86400:
+    if diag is not None:
+        diag["discovered"] += 1
+    if mtime is None:
+        if diag is not None:
+            diag["scanned"] += 1
+            diag["failed_files"] += 1
         return False
-    if diag is not None and start.timestamp() <= mtime < end.timestamp():
-        diag["files"] += 1
+    if mtime < start.timestamp() - 86400:
+        return False
+    if diag is not None:
+        diag["scanned"] += 1
+        if start.timestamp() <= mtime < end.timestamp():
+            diag["files"] += 1
     return True
 
 
-def claude_sessions(start, end, tz, diag: Counter | None = None) -> list[dict]:
-    base = HOME / ".claude" / "projects"
-    if not base.is_dir():
-        return []
-    pmap = claude_project_map()
-    out = []
-    for f in base.glob("*/*.jsonl"):
-        if not _scan_candidate(f, start, end, diag):
-            continue
-        users, concl, tools, files = [], [], Counter(), set()
-        first = last = cwd = None
-        with f.open(encoding="utf-8", errors="replace") as fh:
-            for line in fh:
+def session_records(path: Path, counters: Counter):
+    """Yield original line numbers; one damaged file must not stop other sources."""
+    try:
+        if path.suffix == ".zstd":
+            proc = subprocess.run(["zstd", "-dc", str(path)], capture_output=True, text=True)
+            if proc.returncode != 0:
+                counters["read_errors"] += 1
+                return
+            stream = proc.stdout.splitlines()
+        else:
+            stream = path.open(encoding="utf-8", errors="replace")
+        try:
+            for line_no, line in enumerate(stream, 1):
+                if not line.strip():
+                    continue
                 try:
-                    d = json.loads(line)
-                except Exception:
+                    row = json.loads(line)
+                    if not isinstance(row, dict):
+                        raise ValueError("record must be an object")
+                except (ValueError, TypeError):
+                    counters["invalid_records"] += 1
                     continue
-                ts = parse_ts(d.get("timestamp"), tz)
-                if ts is None or not (start <= ts < end):
-                    continue
-                if diag is not None:
-                    diag["events"] += 1
-                first = first or ts
-                last = ts
-                cwd = cwd or d.get("cwd")
-                kind = d.get("type")
-                msg = d.get("message") or {}
-                if kind == "user":
-                    txt = user_text(msg.get("content"))
-                    if not is_injected(txt):
-                        users.append(one_line(txt, 220))
-                elif kind == "assistant":
-                    txt = blocks_text(msg.get("content")).strip()
-                    if txt:
-                        concl.append(one_line(txt, 260))
-                    for b in msg.get("content") or []:
-                        if isinstance(b, dict) and b.get("type") == "tool_use":
-                            tools[b.get("name", "?")] += 1
-                            inp = b.get("input") or {}
-                            fp = inp.get("file_path") or inp.get("notebook_path")
-                            if fp:
-                                files.add(str(fp))
-        if first and (users or tools):
-            out.append({"agent": "claude-code",
-                        "project": cwd or pmap.get(f.parent.name) or f.parent.name,
-                        "id": f.stem, "start": first, "end": last or first,
-                        "users": users, "concl": concl[-3:], "tools": tools,
-                        "files": files, "steps": sum(tools.values())})
-    return out
+                yield line_no, row
+        finally:
+            if hasattr(stream, "close"):
+                stream.close()
+    except (OSError, UnicodeError):
+        counters["read_errors"] += 1
 
 
-# ---------------- 3. Codex CLI ----------------
-def codex_sessions(start, end, tz, diag: Counter | None = None) -> list[dict]:
-    base = HOME / ".codex" / "sessions"
-    if not base.is_dir():
-        return []
-    out = []
-    # 目录按会话开始日分，跨天会话在后续日期的目录里找不到，所以和其他源一样按 mtime 预筛
-    for f in base.glob("*/*/*/*.jsonl"):
-        if not _scan_candidate(f, start, end, diag):
-            continue
-        users, concl, tools = [], [], Counter()
-        first = last = cwd = None
-        with f.open(encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                try:
-                    d = json.loads(line)
-                except Exception:
-                    continue
-                pl = d.get("payload") or {}
-                if d.get("type") == "session_meta":
-                    # 跨天会话的 session_meta 落在窗口之前，cwd 不能依赖窗口过滤
-                    cwd = cwd or pl.get("cwd")
-                ts = parse_ts(d.get("timestamp"), tz)
-                if ts is None or not (start <= ts < end):
-                    continue
-                if diag is not None:
-                    diag["events"] += 1
-                first = first or ts
-                last = ts
-                if d.get("type") == "event_msg":
-                    if pl.get("type") == "user_message":
-                        txt = str(pl.get("message", ""))
-                        if not is_injected(txt):
-                            users.append(one_line(txt, 220))
-                    elif pl.get("type") == "agent_message":
-                        concl.append(one_line(pl.get("message", ""), 260))
-                elif d.get("type") == "response_item":
-                    if pl.get("type") == "function_call":
-                        tools[pl.get("name", "?")] += 1
-        if first and (users or tools):
-            out.append({"agent": "codex", "project": cwd or f.stem, "id": f.stem,
-                        "start": first, "end": last or first, "users": users,
-                        "concl": concl[-3:], "tools": tools, "files": set(),
-                        "steps": sum(tools.values())})
-    return out
+def record_events(row: dict, agent: str) -> list[dict]:
+    """Keep claims and tool results separate; neither proves a report-level outcome."""
+    events = []
+
+    def add(kind, text, call_id=None):
+        if kind == "tool_call" and not isinstance(text.get("name"), str):
+            raise ValueError("tool name must be a string")
+        if call_id is not None and not isinstance(call_id, (str, int)):
+            raise ValueError("tool call ID must be a string or integer")
+        if not isinstance(text, str):
+            text = json.dumps(text, ensure_ascii=False)
+        if text.strip() or kind == "tool_result":
+            events.append({"kind": kind, "text": text, "call_id": call_id})
+
+    if agent == "claude-code":
+        msg = row.get("message")
+        msg = msg if isinstance(msg, dict) else {}
+        content = msg.get("content")
+        if row.get("type") == "user":
+            txt = user_text(content)
+            if not is_injected(txt):
+                add("user_request", txt)
+        elif row.get("type") == "assistant":
+            add("assistant_statement", blocks_text(content))
+        for block in content if isinstance(content, list) else []:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "tool_use":
+                add("tool_call", {"name": block.get("name"), "input": block.get("input")},
+                    block.get("id"))
+            elif block.get("type") == "tool_result":
+                add("tool_result", {"content": block.get("content"),
+                                    "is_error": block.get("is_error")}, block.get("tool_use_id"))
+    elif agent == "codex":
+        pl = row.get("payload")
+        pl = pl if isinstance(pl, dict) else {}
+        kind = pl.get("type")
+        if row.get("type") == "event_msg":
+            if kind == "user_message" and not is_injected(str(pl.get("message", ""))):
+                add("user_request", pl.get("message", ""))
+            elif kind == "agent_message":
+                add("assistant_statement", pl.get("message", ""))
+        elif row.get("type") == "response_item":
+            if kind in ("function_call", "custom_tool_call"):
+                add("tool_call", {"name": pl.get("name"),
+                                  "input": pl.get("arguments", pl.get("input"))}, pl.get("call_id"))
+            elif kind in ("function_call_output", "custom_tool_call_output"):
+                add("tool_result", pl.get("output", ""), pl.get("call_id"))
+    else:
+        data = row.get("data")
+        data = data if isinstance(data, dict) else {}
+        kind = row.get("type")
+        if kind == "user/message":
+            txt = user_text(data.get("content"))
+            if not is_injected(txt):
+                add("user_request", txt)
+        elif kind == "assistant/message":
+            msg = data.get("message")
+            add("assistant_statement", blocks_text(msg.get("content") if isinstance(msg, dict) else ""))
+        elif kind == "tool/call":
+            add("tool_call", {"name": data.get("name"), "input": data.get("arguments")},
+                data.get("call_id", data.get("id")))
+        elif kind == "tool/result":
+            add("tool_result", data, data.get("call_id", data.get("id")))
+    return events
 
 
-# ---------------- 4. DSH（zstd 压缩的 v4 jsonl） ----------------
-def dsh_sessions(start, end, tz, diag: Counter | None = None) -> list[dict]:
-    base = HOME / ".dsh" / "sessions"
-    if not base.is_dir() or not shutil.which("zstd"):
-        if base.is_dir() and not shutil.which("zstd"):
-            print("[note] 未找到 zstd，跳过 DSH 会话（brew install zstd）", file=sys.stderr)
-        return []
-    out = []
-    for f in base.glob("*/session-*/*.jsonl.zstd"):
-        if not _scan_candidate(f, start, end, diag):
-            continue
-        proc = subprocess.run(["zstd", "-dc", str(f)], capture_output=True, text=True)
-        if proc.returncode != 0:
-            continue
-        users, concl, tools, files = [], [], Counter(), set()
-        first = last = cwd = None
-        for line in proc.stdout.splitlines():
+def parse_session_file(path: Path, agent: str, start, end, tz, diag: Counter,
+                       fallback: str) -> dict | None:
+    local = Counter()
+    events, users, concl, files = [], [], [], set()
+    tools = Counter()
+    first = last = cwd = None
+    for line_no, row in session_records(path, local):
+        pl = row.get("payload")
+        if agent == "codex" and row.get("type") == "session_meta" and isinstance(pl, dict):
+            cwd = cwd or pl.get("cwd")
+        else:
+            cwd = cwd or row.get("cwd")
+        ts = (epoch_ms(row.get("time"), tz) or parse_ts(row.get("createdAt"), tz)
+              if agent == "dsh" else parse_ts(row.get("timestamp"), tz))
+        if ts is None:
             try:
-                d = json.loads(line)
-            except Exception:
-                continue
-            t = d.get("type")
-            data = d.get("data") or {}
-            if t == "session":
-                cwd = d.get("cwd") or cwd
-                continue
-            ts = epoch_ms(d.get("time"), tz) or parse_ts(d.get("createdAt"), tz)
-            if ts is None or not (start <= ts < end):
-                continue
-            if diag is not None:
-                diag["events"] += 1
-            first = first or ts
-            last = ts
-            if t == "user/message":
-                txt = user_text(data.get("content"))
-                if not is_injected(txt):
-                    users.append(one_line(txt, 220))
-            elif t == "assistant/message":
-                txt = blocks_text((data.get("message") or {}).get("content")).strip()
-                if txt:
-                    concl.append(one_line(txt, 260))
-            elif t == "tool/call":
-                tools[data.get("name", "?")] += 1
-                try:
-                    args = json.loads(data.get("arguments") or "{}")
-                except Exception:
-                    args = {}
-                for k in ("file_path", "path", "notebook_path"):
-                    if args.get(k):
-                        files.add(str(args[k]))
-        if first and (users or tools):
-            out.append({"agent": "dsh",
-                        "project": cwd or f.parent.parent.name.strip("-").replace("-", "/"),
-                        "id": f.parent.name, "start": first, "end": last or first,
-                        "users": users, "concl": concl[-3:], "tools": tools,
-                        "files": files, "steps": sum(tools.values())})
+                if record_events(row, agent):
+                    local["invalid_records"] += 1
+            except (TypeError, AttributeError, ValueError):
+                local["invalid_records"] += 1
+            continue
+        local["timestamps"] += 1
+        if not start <= ts < end:
+            continue
+        local["events"] += 1
+        first = min(first, ts) if first else ts
+        last = max(last, ts) if last else ts
+        try:
+            extracted = record_events(row, agent)
+        except (TypeError, AttributeError, ValueError):
+            local["invalid_records"] += 1
+            continue
+        for event in extracted:
+            event.update(at=ts, source=str(path), line=line_no)
+            events.append(event)
+            if event["kind"] == "user_request":
+                users.append(one_line(event["text"], 220))
+            elif event["kind"] == "assistant_statement":
+                concl.append(one_line(event["text"], 260))
+            elif event["kind"] == "tool_call":
+                call = json.loads(event["text"])
+                tools[call.get("name") or "?"] += 1
+                args = call.get("input")
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except ValueError:
+                        args = {}
+                if isinstance(args, dict):
+                    for key in ("file_path", "path", "notebook_path"):
+                        if isinstance(args.get(key), str):
+                            files.add(args[key])
+    diag.update(local)
+    unknown = not local["timestamps"] or (local["events"] and not events)
+    if local["read_errors"] or local["invalid_records"] or unknown:
+        diag["failed_files"] += 1
+        if unknown and not local["read_errors"]:
+            diag["unrecognized_files"] += 1
+    else:
+        diag["ok_files"] += 1
+    if not events:
+        return None
+    return {"agent": agent, "project": cwd if isinstance(cwd, str) and cwd else fallback,
+            "id": path.parent.name if agent == "dsh" else path.stem,
+            "start": first, "end": last, "users": users, "concl": concl[-3:],
+            "tools": tools, "files": files, "steps": sum(tools.values()), "events": events,
+            "source": str(path)}
+
+
+def scan_sessions(base: Path, pattern: str, agent: str, start, end, tz,
+                  diag: Counter | None) -> list[dict]:
+    diag = diag if diag is not None else Counter()
+    if not base.is_dir():
+        diag["unavailable"] = 1
+        return []
+    if agent == "dsh" and not shutil.which("zstd"):
+        diag["unavailable"] = 1
+        print("[note] 未找到 zstd，跳过 DSH 会话（brew install zstd）", file=sys.stderr)
+        return []
+    out = []
+    for path in sorted(base.glob(pattern)):
+        if not _scan_candidate(path, start, end, diag):
+            continue
+        fallback = path.parent.name
+        if agent == "claude-code":
+            fallback = claude_project_map().get(path.parent.name, fallback)
+        elif agent == "codex":
+            fallback = path.stem
+        elif agent == "dsh":
+            fallback = path.parent.parent.name.strip("-").replace("-", "/")
+        session = parse_session_file(path, agent, start, end, tz, diag, fallback)
+        if session:
+            out.append(session)
     return out
+
+
+def claude_sessions(start, end, tz, diag: Counter | None = None) -> list[dict]:
+    return scan_sessions(HOME / ".claude" / "projects", "*/*.jsonl", "claude-code",
+                         start, end, tz, diag)
+
+
+def codex_sessions(start, end, tz, diag: Counter | None = None) -> list[dict]:
+    return scan_sessions(HOME / ".codex" / "sessions", "*/*/*/*.jsonl", "codex",
+                         start, end, tz, diag)
+
+
+def dsh_sessions(start, end, tz, diag: Counter | None = None) -> list[dict]:
+    return scan_sessions(HOME / ".dsh" / "sessions", "*/session-*/*.jsonl.zstd", "dsh",
+                         start, end, tz, diag)
 
 
 # ---------------- 5. 聚合分析（为主题归纳服务） ----------------
@@ -666,9 +730,27 @@ def _period_word(days: int) -> str:
     return "日报" if days == 1 else "周报" if days == 7 else f"{days} 天汇总"
 
 
+def coverage_status(diag: dict) -> str:
+    if diag.get("disabled"):
+        return "未启用"
+    if diag.get("unavailable"):
+        return "来源不可用（目录或依赖缺失）"
+    if diag.get("failed_files"):
+        return "部分失败" if diag.get("ok_files") else "读取或解析失败"
+    return "正常" if diag.get("sessions") or diag.get("commits") else "所选范围无记录"
+
+
+def event_excerpt(event: dict, limit: int = 260) -> str:
+    locator = f"{event['at']:%m-%d %H:%M:%S} · {event['source']}:{event['line']}"
+    call = f" · call {event['call_id']}" if event.get("call_id") else ""
+    return f"{one_line(event['text'], limit)} （{locator}{call}）"
+
+
 def render(start, end, cfg, commits, sessions, truncated, dirty=None,
-           scope=None, days=1, extras=0, generated=None, period_word=None) -> str:
-    span = start.strftime("%Y-%m-%d") if start.date() == (end - timedelta(seconds=1)).date() \
+           scope=None, days=1, extras=0, generated=None, period_word=None,
+           diagnostics=None) -> str:
+    single_day = start.date() == (end - timedelta(seconds=1)).date()
+    span = start.strftime("%Y-%m-%d") if single_day \
         else f"{start:%Y-%m-%d} → {(end - timedelta(seconds=1)):%Y-%m-%d}"
     L = [f"# 工作证据 {span}", ""]
     if generated:
@@ -682,6 +764,17 @@ def render(start, end, cfg, commits, sessions, truncated, dirty=None,
         L.append("- 会话：" + (", ".join(scope["sessions"]) if scope["sessions"] else "未采集"))
         L.append("- 当前工作区状态：" + ("已扫描（运行时快照）" if scope.get("dirty") else "未采集"))
         L.append("")
+
+    if diagnostics:
+        L += ["## 采集诊断", ""]
+        for name, diag in diagnostics.items():
+            L.append(f"- {name}：{coverage_status(diag)}；扫描 {diag.get('scanned', 0)}，"
+                     f"无已知解析错误 {diag.get('ok_files', 0)}，失败/部分解析 {diag.get('failed_files', 0)}，"
+                     f"坏记录 {diag.get('invalid_records', 0)}；"
+                     f"提交 {diag.get('commits', 0)} / 会话 {diag.get('sessions', 0)}；"
+                     f"详细摘要 {diag.get('detailed', 0)}，摘要省略 {diag.get('omitted', 0)}")
+        L += ["计数单位：Git 为仓库，会话来源为文件；成功和失败文件分别计数。"
+              "摘要省略的会话仍在完整索引及结构化证据中。", ""]
 
     rows = scope_summary(commits)
     if rows:
@@ -724,29 +817,64 @@ def render(start, end, cfg, commits, sessions, truncated, dirty=None,
                     note = f"（作者 {c['authored'][5:10]}）"
             L.append(f"- [{day}]{note} {c['subject']}{mark}"
                      f"  (+{c['added']}/-{c['deleted']}, {len(c['files'])} files)")
+            L.append(f"  证据：commit `{c['full_sha']}` · {c['at']}"
+                     f" · 仓库 `{c.get('repo_path', repo)}`（本地记录，不证明已合并或已验证）")
             if c["files"]:
                 L.append("  " + ", ".join(c["files"][:5]))
     L.append("")
 
     L.append(f"## B. Agent 会话（{len(sessions)} 段" +
-             ("，已截断" if truncated else "") + "）")
+             ("，部分详细摘要省略，索引完整" if truncated else "") + "）")
     if not sessions:
         L.append("_无会话记录_")
+    if sessions:
+        L.append("### 完整会话索引")
+        for s in sessions:
+            detail = "已展开" if s.get("detailed", True) else "摘要省略，可回查"
+            hint = one_line(" / ".join(s["users"][:1] + s["users"][-1:] if len(s["users"]) > 1
+                                      else s["users"] or s["concl"][-1:]), 160)
+            L.append(f"- [{detail}] {s['agent']} · {Path(s['project']).name} · "
+                     f"{s['start']:%m-%d %H:%M}–{s['end']:%m-%d %H:%M} · "
+                     f"id `{s['id']}` · {hint}")
+            if s.get("source"):
+                L.append(f"  来源：`{s['source']}`；完整事件及分片定位见结构化证据。")
+        L.append("")
     for s in sorted(sessions, key=lambda x: x["start"]):
+        if not s.get("detailed", True):
+            continue
         proj = Path(s["project"]).name if s["project"] not in (".", "/") else "?"
         tspan = (f"{s['start']:%H:%M}–{s['end']:%H:%M}"
-                 if s["start"].date() == s["end"].date()
+                 if single_day and s["start"].date() == s["end"].date()
                  else f"{s['start']:%m-%d %H:%M}–{s['end']:%m-%d %H:%M}")
         dup = f" · ↻ 同开场白 {s['dup_n']} 段" if s.get("dup_n") else ""
         L.append(f"### [{s['agent']}] {proj} · {tspan} · {s['steps']} 步 · id {short_id(s['id'])}{dup}")
-        if s["users"]:
+        if s.get("events"):
+            requests = [e for e in s["events"] if e["kind"] == "user_request"]
+            if len(requests) > 4:
+                L.append(f"- 用户请求省略 {len(requests) - 4} 条，见结构化证据。")
+                requests = requests[:2] + requests[-2:]
+            for event in requests:
+                L.append("- 用户请求：" + event_excerpt(event, 220))
+            claims = [e for e in s["events"] if e["kind"] == "assistant_statement"]
+            for event in claims[-2:]:
+                L.append("- 助手陈述（未独立核验）：" + event_excerpt(event))
+            results = [e for e in s["events"] if e["kind"] == "tool_result"]
+            calls = {e["call_id"]: e for e in s["events"]
+                     if e["kind"] == "tool_call" and e.get("call_id")}
+            for event in results[-3:]:
+                if event.get("call_id") in calls:
+                    L.append("- 对应工具调用：" + event_excerpt(calls[event["call_id"]]))
+                L.append("- 工具结果（输出摘录，需核对范围）：" + event_excerpt(event))
+            L.append(f"- 共 {len(s['events'])} 条原始事件；此处为摘录，"
+                     "中间决策及完整输出见结构化证据。")
+        elif s["users"]:
             users = s["users"]
             if len(users) > 4:  # 长会话的后半段常有转向，取头尾而不是只取开头
                 users = users[:2] + [f"…（省略 {len(users) - 4} 条）"] + users[-2:]
             L.append("- 用户：" + " / ".join(users))
-        if s["concl"]:
+        if s["concl"] and not s.get("events"):
             for c in s["concl"][-2:]:
-                L.append(f"- 结论：{c}")
+                L.append(f"- 助手陈述（未独立核验）：{c}")
         if s["tools"]:
             top = ", ".join(f"{n}×{v}" for n, v in s["tools"].most_common(5))
             line = f"- 动手：{top}"
@@ -761,20 +889,22 @@ def render(start, end, cfg, commits, sessions, truncated, dirty=None,
 
     if dirty:
         stale_days = int(cfg.get("stale_days", 7))
-        L.append(f"## C. 未提交改动（≥{stale_days} 天未提交的归「遗留变更」）")
+        L.append("## C. 当前未提交改动（运行时快照）")
+        L.append(f"最近提交距今 ≥{stale_days} 天只表示仓库长期无提交；改动存在时长未知。")
         for d in dirty:
             if d["age_days"] is None:
                 age, mark = "未知", ""
             else:
                 age = f"{d['age_days']} 天前"
-                mark = "  ⚠️遗留" if d["age_days"] >= stale_days else ""
+                mark = "  长期无提交的仓库存在当前改动" if d["age_days"] >= stale_days else ""
             L.append(f"- [{d['repo']}] {d['files']} 个文件改动；最近一次提交 {age}{mark}")
         L.append("")
 
     period = period_word or _period_word(days)
     L.append("## D. 写稿提示")
     L.append(f"写{period}前先读 REFERENCE.md（模板、分栏依据、线索），归纳流程和硬性约束见 SKILL.md；"
-             "只写本文件出现过的事实。")
+             "只写本证据包及关联结构化证据、原始记录支持的事实。"
+             "先检查采集诊断和完整会话索引；助手陈述不能单独证明已验证或已合并。")
     return "\n".join(L)
 
 
@@ -797,14 +927,14 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--no-git", action="store_true")
     ap.add_argument("--no-sessions", action="store_true")
     ap.add_argument("--dirty", action="store_true",
-                    help="附带未提交改动（tracked 文件），用于「遗留变更」章节")
+                    help="附带当前未提交改动（tracked 文件），不推断改动年龄")
     ap.add_argument("--no-redact", action="store_true", help="关闭证据包脱敏")
-    ap.add_argument("--keep", type=int, help="证据包保留份数，0 = 不清理（默认取 config）")
-    ap.add_argument("--max-sessions", type=int)
+    ap.add_argument("--keep", type=int, help="最新视图保留份数，0 = 不清理；不删除历史快照")
+    ap.add_argument("--max-sessions", type=int, help="详细摘要额度；完整会话索引和 JSON 不截断")
     ap.add_argument("--whoami", action="store_true",
                     help="只做身份体检：打印 git 身份、配置里的邮箱、各仓库近期作者")
     ap.add_argument("--out", help="证据包输出路径")
-    ap.add_argument("--force", action="store_true", help="覆盖已存在的证据包")
+    ap.add_argument("--force", action="store_true", help="保存独立快照后更新已存在的最新视图")
     ap.add_argument("--print", dest="to_stdout", action="store_true", help="打到 stdout")
     return ap
 
@@ -846,10 +976,11 @@ def resolve_period(date_arg: str | None, days: int, tz: timezone, week: str | No
 def resolve_author_regex(args: argparse.Namespace, cfg: dict) -> str | None:
     """Resolve author precedence: CLI, config, then global Git identity."""
     author_re = args.author
-    if not author_re and cfg.get("author_emails"):
-        author_re = "|".join(re.escape(email) for email in cfg["author_emails"])
     if not author_re:
-        author_re = git_config_value("user.email") or None
+        emails = cfg.get("author_emails") or [git_config_value("user.email")]
+        alternatives = "|".join(re.escape(email) for email in emails if email)
+        # Git renders authors as "name <email>"; only --author accepts arbitrary regexes.
+        author_re = rf"<(?:{alternatives})>\Z" if alternatives else None
     if author_re:
         try:
             re.compile(author_re, re.I)
@@ -868,11 +999,11 @@ def git_config_value(key: str) -> str:
 
 def collect_commits(repos: list[Path], start: datetime, end: datetime,
                     author_re: str | None, any_author: bool,
-                    my_name: str) -> tuple[list[dict], dict[str, int]]:
+                    my_name: str, diag: Counter | None = None) -> tuple[list[dict], dict[str, int]]:
     commits, seen = [], set()
     alias_hits: dict[str, int] = {}
     for repo in repos:
-        for commit in git_commits(repo, start, end):
+        for commit in git_commits(repo, start, end, diag):
             mine = bool(author_re and re.search(author_re, commit["author"], re.I))
             if not mine and not any_author:
                 if my_name and my_name.lower() in commit["author"].lower():
@@ -902,31 +1033,79 @@ def warn_format_drift(name: str, location: str, diag: Counter, found: int) -> No
               f"会话格式可能变了，检查 {location}", file=sys.stderr)
 
 
-def collect_sessions(start: datetime, end: datetime, tz: timezone, sources: dict,
-                     disabled: bool, commits: list[dict], limit: int) -> tuple[list[dict], bool]:
-    sessions = []
-    if not disabled:
-        for name, parse, location in SESSION_SOURCES:
-            if sources.get(name, True):
-                diag: Counter = Counter()
-                found = parse(start, end, tz, diag)
-                warn_format_drift(name, location, diag, len(found))
-                sessions.extend(found)
+def select_session_details(sessions: list[dict], limit: int) -> None:
+    """Round-robin dates, then projects; tool count does not determine importance."""
+    dates = {}
+    for session in sessions:
+        session["detailed"] = False
+        projects = dates.setdefault(session["start"].date(), {})
+        projects.setdefault(session["project"], []).append(session)
+    queues = []
+    for projects in dates.values():
+        queue = []
+        groups = list(projects.values())
+        while any(groups):
+            for group in groups:
+                if group:
+                    queue.append(group.pop(0))
+        queues.append(queue)
+    while limit and any(queues):
+        for queue in queues:
+            if queue and limit:
+                queue.pop(0)["detailed"] = True
+                limit -= 1
 
+
+def collect_sessions(start: datetime, end: datetime, tz: timezone, sources: dict,
+                     disabled: bool, commits: list[dict], limit: int,
+                     diagnostics: dict | None = None) -> tuple[list[dict], bool]:
+    diagnostics = diagnostics if diagnostics is not None else {}
+    sessions = []
+    for name, parse, location in SESSION_SOURCES:
+        diag: Counter = Counter()
+        diagnostics[name] = diag
+        if disabled or not sources.get(name, True):
+            diag["disabled"] = 1
+            continue
+        found = parse(start, end, tz, diag)
+        diag["sessions"] = len(found)
+        warn_format_drift(name, location, diag, len(found))
+        if diag["failed_files"]:
+            print(f"[warn] {name}: {diag['failed_files']} 个文件读取或解析不完整；"
+                  "详见证据包采集诊断", file=sys.stderr)
+        sessions.extend(found)
+
+    # A DSH session may be split across files. Keep all fragments and their locators.
     by_id: dict[tuple, dict] = {}
     for session in sessions:
         key = (session["agent"], session["id"])
-        if key not in by_id or session["steps"] > by_id[key]["steps"]:
+        if key not in by_id:
             by_id[key] = session
-    sessions = sorted(by_id.values(), key=lambda session: session["start"])
+            continue
+        kept = by_id[key]
+        kept["start"] = min(kept["start"], session["start"])
+        kept["end"] = max(kept["end"], session["end"])
+        kept["events"] = sorted(kept.get("events", []) + session.get("events", []),
+                                key=lambda event: (event["at"], event["source"], event["line"]))
+        kept["users"] = [one_line(event["text"], 220) for event in kept["events"]
+                         if event["kind"] == "user_request"]
+        kept["concl"] = [one_line(event["text"], 260) for event in kept["events"]
+                         if event["kind"] == "assistant_statement"][-3:]
+        kept["tools"].update(session["tools"])
+        kept["files"].update(session["files"])
+        kept["steps"] += session["steps"]
+    sessions = sorted(by_id.values(), key=lambda session: (session["start"], session["id"]))
     mark_near_duplicates(sessions)
     link_sessions(sessions, commits)
-
-    truncated = len(sessions) > limit
-    if truncated:
-        sessions = sorted(sorted(sessions, key=lambda session: session["steps"], reverse=True)[:limit],
-                          key=lambda session: session["start"])
-    return sessions, truncated
+    select_session_details(sessions, limit)
+    agent_names = {"claude-code": "claude", "codex": "codex", "dsh": "dsh"}
+    for name in agent_names.values():
+        diagnostics[name]["sessions"] = 0
+    for session in sessions:
+        diag = diagnostics[agent_names[session["agent"]]]
+        diag["sessions"] += 1
+        diag["detailed" if session["detailed"] else "omitted"] += 1
+    return sessions, len(sessions) > limit
 
 
 def print_identity_report(repos: list[Path], repos_root: Path, cfg: dict,
@@ -994,20 +1173,68 @@ def prune_evidence(directory: Path, keep: int) -> None:
             print(f"[warn] 无法删除旧证据包 {old}: {e}", file=sys.stderr)
 
 
-def write_evidence(path: Path, text: str, force: bool) -> str | None:
-    """Write evidence atomically; return an error message on failure."""
+def json_evidence(value, redact: bool):
+    """Redact string values before encoding, so replacements cannot corrupt JSON."""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, str):
+        return redact_text(value) if redact else value
+    if isinstance(value, dict):
+        return {key: json_evidence(item, redact) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        items = sorted(value) if isinstance(value, set) else value
+        return [json_evidence(item, redact) for item in items]
+    return value
+
+
+def evidence_counts(text: str) -> dict[str, int]:
+    counts = {}
+    for key, pattern in (("commits", r"## A\. Git 提交（(\d+) 条"),
+                         ("sessions", r"## B\. Agent 会话（(\d+) 段")):
+        match = re.search(pattern, text)
+        if match:
+            counts[key] = int(match.group(1))
+    return counts
+
+
+def write_evidence(path: Path, text: str, force: bool, evidence=None) -> str | None:
+    """Save immutable evidence first, then atomically replace the latest Markdown view."""
     if path.exists() and not force:
         return f"证据包已存在：{path}；确认要覆盖时加 --force"
     temporary_path = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
+        previous = path.read_text(encoding="utf-8") if path.exists() else None
+        history = path.parent / ".history" / path.name
+        history.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ-")
+        snapshot = Path(tempfile.mkdtemp(prefix=stamp, dir=history)).resolve()
+        if previous is not None:
+            # Also preserve legacy Markdown that predates versioned snapshots.
+            (snapshot / "previous.md").write_text(previous, encoding="utf-8")
+            old_counts, new_counts = evidence_counts(previous), evidence_counts(text)
+            decreased = [f"{key} {old_counts[key]} → {new_counts[key]}"
+                         for key in old_counts.keys() & new_counts.keys()
+                         if new_counts[key] < old_counts[key]]
+            if decreased:
+                warning = "重采证据数量减少：" + "，".join(sorted(decreased))
+                text += f"\n\n## 快照差异\n{warning}。旧证据保存在 `{snapshot / 'previous.md'}`；" \
+                        "可能是采集范围变化或原始记录缺失，请核对；未自动合并新旧证据。\n"
+                print(f"[warn] {warning}；旧快照已保留", file=sys.stderr)
+        if evidence is not None:
+            structured = snapshot / "evidence.json"
+            structured.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n",
+                                  encoding="utf-8")
+            text += f"\n\n结构化证据（完整会话事件与定位）：`{structured}`\n"
+        text += f"\n本次快照：`{snapshot / 'evidence.md'}`\n"
+        (snapshot / "evidence.md").write_text(text, encoding="utf-8")
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent,
                                         prefix=f".{path.name}.", suffix=".tmp",
                                         delete=False) as temporary:
             temporary_path = Path(temporary.name)
             temporary.write(text)
         os.replace(temporary_path, path)
-    except OSError as e:
+    except (OSError, UnicodeError) as e:
         if temporary_path:
             try:
                 temporary_path.unlink(missing_ok=True)
@@ -1076,9 +1303,13 @@ def main() -> int:
         print_identity_report(repos, repos_root, cfg, author_re, my_name, my_email)
         return 0
 
-    commits, alias_hits = collect_commits(repos, start, end, author_re, a.any_author, my_name)
+    diagnostics = {"git": Counter(scanned=len(repos), disabled=int(not git_enabled),
+                                  unavailable=int(git_enabled and not repos))}
+    commits, alias_hits = collect_commits(repos, start, end, author_re, a.any_author, my_name,
+                                         diagnostics["git"])
     pair_reverts(commits)
     shown, extras = collapse_duplicates(commits)
+    diagnostics["git"]["commits"] = len(shown)
     if extras:
         print(f"[note] 折叠了 {extras} 个 patch-id 相同的 rebase/cherry-pick 副本，"
               f"写报告时按同一事项处理", file=sys.stderr)
@@ -1090,7 +1321,8 @@ def main() -> int:
               f"       如果这些是你（换过邮箱），把它们加进 config.author_emails 后重跑；"
               f"如果是重名同事，忽略即可", file=sys.stderr)
 
-    sessions, truncated = collect_sessions(start, end, tz, src, a.no_sessions, shown, limit)
+    sessions, truncated = collect_sessions(start, end, tz, src, a.no_sessions, shown, limit,
+                                          diagnostics)
 
     now = datetime.now(tz)
     dirty, dirty_scanned = collect_dirty_state(
@@ -1106,7 +1338,8 @@ def main() -> int:
     }
     text = render(start, end, cfg, shown, sessions, truncated, dirty, scope,
                   days=days, extras=extras, generated=now,
-                  period_word="周报" if a.week or a.last_week else None)
+                  period_word="周报" if a.week or a.last_week else None,
+                  diagnostics=diagnostics)
 
     do_redact = (not a.no_redact) and bool(cfg.get("redact", True))
     if do_redact:
@@ -1118,7 +1351,12 @@ def main() -> int:
         return 0
 
     evidence_dir, out = evidence_path(cfg, a, start, days)
-    write_error = write_evidence(out, text, a.force)
+    evidence = json_evidence({
+        "schema_version": 1, "generated_at": now, "start": start, "end_exclusive": end,
+        "scope": scope, "diagnostics": diagnostics, "commits": shown,
+        "sessions": sessions, "dirty": dirty,
+    }, do_redact)
+    write_error = write_evidence(out, text, a.force, evidence)
     if write_error:
         print(f"[error] {write_error}", file=sys.stderr)
         return 2
