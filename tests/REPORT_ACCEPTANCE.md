@@ -1,16 +1,53 @@
 # 写稿行为验收
 
-修改 SKILL.md 的归纳、审稿规则后使用。固定证据位于 [fixtures/report_cases.json](fixtures/report_cases.json)，项目与编号均为虚构。
-这组验收评估事实、主题和状态，不要求逐字匹配参考文案，也不把采集器单元测试通过视为写作能力通过。
+修改 SKILL.md 或 references/ 中的采集、交互、归纳和审稿规则后使用。固定证据位于 [fixtures/report_cases.json](fixtures/report_cases.json)，项目与编号均为虚构。
+这组验收评估对象选择、事实、主题和状态，不要求逐字匹配参考文案，也不把采集器单元测试通过视为写作能力通过。
 
 ## 操作方法
 
-1. 每次只给写稿 agent 一个 case 的 `request`、`evidence`、可选的 `context`、日期，以及 SKILL.md、REFERENCE.md。这些是合成输入，不访问真实工作数据或联网；文件修改案例按 `context` 在临时目录准备指定文件。不要额外加入“必须询问”“必须采集”等会替 skill 作决定的指令。
-2. 把产出的报告和“报告句子 → 证据 ID”核对表保存到临时目录。核对表是评审材料，不写入正式报告。
+1. 每次只给写稿 agent 一个 case 的 `request`、`evidence`、可选的 `context`、日期，以及 SKILL.md 的路径，允许按入口链接读取 references/ 中的对应文档。这些是合成输入，不访问真实工作数据或联网；文件修改案例按 `context` 在临时目录准备指定文件。不要额外加入“必须询问”“必须采集”等会替 skill 作决定的指令。
+2. 保存交互记录；应先选择对象的案例，在尚未收到答复时结束该次评估，检查是否停留在候选选择，不能替用户自动回复。已选对象的续写由独立 case 提供上下文。
+   产出报告时，把报告和“报告句子 → 证据 ID”核对表保存到临时目录。核对表是评审材料，不写入正式报告。
 3. 生成后再读取该 case 的 `criteria`，逐项评审事实支持、主题关联、回退处理和验证范围。记录所用模型、skill 版本和失败项，不能提前给出参考答案。
 4. 若发现失败，修正规则后用相同原始输入重跑；独立 agent 可用且已获授权时，可由独立 agent 生成并由另一方评审。
 
 通过条件：全部 case 的 criteria 满足；没有无来源的项目、合并/上线状态、测试结果、性能收益或计划，也没有超出请求的采集、落盘或重复确认。
+
+## 连续多轮验收
+
+[fixtures/report_conversation.json](fixtures/report_conversation.json) 定义一段连续对话。与上面的独立 case 分开运行：
+
+1. 创建独立临时目录，只向测试 agent 提供第一轮 `request`、日期和 `initial_evidence`，标明证据是采集器产物；不提供 criteria、未来轮次或期望答案。
+2. 保持同一个 agent / 对话上下文，每次完成回复后再交付下一轮 request 和 evidence_additions。初次采集已有预置产物，不访问真实用户数据或网络。
+3. 完整保存每轮输入、输出及工具行为，再由评审者对照该轮 criteria 检查。不将手工注入“已确认状态”的独立 case 冒充连续对话测试。
+4. 检查首次选择与文档补问、只回答对象时的独立状态、文档合并、重采新增候选及排除状态继承。复跑时保留失败记录，修正后从第一轮重新开始。
+
+模型行为验收和脚本单元测试分别报告结果，不以脚本的测试数量代替多轮验收。PR API、严格项目范围和离线回退由 test_prs.py、test_scope.py 的本地/模拟测试验证。
+
+重构前的[四轮实际执行记录](results/report_conversation.json)保存了输入、回复、工具记录、被测文件哈希和逐轮评审，四轮均满足对应判据。
+历史记录保留当时的文件名和哈希，不代表当前版本已通过；重构后需另存执行记录。每次合成对话验证不代表 20 个独立 case 全部执行，也不验证真实 GitHub 账号连通性。
+
+结构重构后的[四轮执行记录](results/report_conversation_refactor.json)使用同一组原始输入和新的独立 agent，从入口自行读取参考文档；四轮均满足对应判据。
+
+2026-11-15 修复后的[四轮执行记录](results/report_conversation_2026-11-15.json)使用新的独立 agent 连续执行，四轮均通过。记录包含实际输入、回复、工具行为摘要、来源核对和当前规则哈希；另记载 149 项脚本测试通过，覆盖分页与截断、无提交 PR 详情、显式作者筛选、脱敏及安装同步。两类验证的范围分别记录，不验证真实 GitHub 账号连通性。
+
+随后修复 Codex `response_item/message` 文字漏采及诊断缺口，新增[脚本回归记录](results/codex_message_parsing_2026-11-15.json)，155 项测试通过。上面的四轮记录和代码哈希仍保留其执行时的版本；本次解析器修复未重新执行写稿行为验收。
+
+按重构阶段的约定，现已移除 `event_msg` 文字兼容，统一从 `response_item/message` 提取文字。[本次脚本回归](results/codex_response_items_only_2026-11-15.json)共 157 项通过；旧格式只诊断、不提取，正常采集用例已切换为当前格式。此前记录中的兼容行为仅代表当时版本。
+
+引用某次结果前，先在工作区核对它的规则哈希；不一致表示记录对应旧版，需要复跑，不能沿用通过结论：
+
+```bash
+python3 - <<'PY'
+import hashlib, json
+from pathlib import Path
+record = json.loads(Path('tests/results/report_conversation_2026-11-15.json').read_text())
+stale = [name for name, expected in record['tested_sha256'].items()
+         if not Path(name).is_file() or hashlib.sha256(Path(name).read_bytes()).hexdigest() != expected]
+print('需重新验收：' + ', '.join(stale) if stale else '规则与本次验收记录一致')
+raise SystemExit(bool(stale))
+PY
+```
 
 ## 参考表述与核对示例
 
@@ -52,6 +89,16 @@
 | revert_without_reason | 说明已回退，允许省略未知原因和替代方案，不为叙述完整而编造。 |
 | cross_day_without_activity | 说明所给材料缺少当日活动记录，不跨日期归入事件，也不补写“继续”。 |
 | authorized_report_update | 在临时目录更新指定文件，保留其他内容，不再次询问已经授予的覆盖授权。 |
+| discovered_targets_need_selection | 自动发现的 PR 和会话先批量列候选，同次补问范围外文档产出；无答复时不深入分析待选项或生成报告。 |
+| resume_with_selected_targets | 沿用所选编号，只总结选中 PR 的区间增量和会话，不重复确认，不纳入排除项。 |
+| selected_session_fragment | 明确指定的片段直接分析，不扩展到同一会话的其他话题或时段。 |
+| new_candidate_after_selection | 重写时保留既有选择；新增候选未选前不分析，不阻塞已选事项，也不重问已排除项。 |
+| empty_sources_ask_documents | 未采到记录时主动询问范围外文档产出，不断言没有工作，不展示空选择题。 |
+| supplement_external_document | 纳入用户明确补充的文档，只归纳本人本期贡献，不将历史正文或方案写成已实现成果。 |
+| no_extra_documents_already_confirmed | 沿用没有补充文档的答复，继续写已选有据内容，不因来源缺口重复追问。 |
+| auto_evidence_not_user_selection | 自动获得完整证据仍先确认对象并补问文档；“直接回复”和项目名不代表全选。 |
+| explicit_automatic_selection | 遵循用户明确的自动筛选、无需询问要求，直接写有据内容。 |
+| screen_uninformative_session_index | 初筛后只列可辨认工作的会话；不询问空索引，也不漏掉仅有分析或工具产出的续接会话。 |
 
 ## 评审记录模板
 
@@ -67,3 +114,13 @@
 | revert_without_reason | | | | |
 | cross_day_without_activity | | | | |
 | authorized_report_update | | | | |
+| discovered_targets_need_selection | | | | |
+| resume_with_selected_targets | | | | |
+| selected_session_fragment | | | | |
+| new_candidate_after_selection | | | | |
+| empty_sources_ask_documents | | | | |
+| supplement_external_document | | | | |
+| no_extra_documents_already_confirmed | | | | |
+| auto_evidence_not_user_selection | | | | |
+| explicit_automatic_selection | | | | |
+| screen_uninformative_session_index | | | | |

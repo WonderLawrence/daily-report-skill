@@ -1,11 +1,17 @@
 {
   "author_emails": [],
   "repos_root": "~/Project",
+  "only_repos": [],
   "reports_dir": "~/Documents/reports",
   "utc_offset_hours": 8,
   "max_sessions": 30,
   "dirty": false,
   "stale_days": 7,
+  "fetch": true,
+  "fetch_timeout_seconds": 30,
+  "github_prs": true,
+  "github_timeout_seconds": 30,
+  "github_max_queries": 200,
   "sources": {
     "git": true,
     "claude": true,

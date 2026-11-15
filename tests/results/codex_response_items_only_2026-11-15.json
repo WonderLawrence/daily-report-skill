@@ -1,0 +1,28 @@
+{
+  "date": "2026-11-15",
+  "kind": "collector_script_regression",
+  "change": "Remove Codex event_msg text compatibility; use response_item/message for text evidence.",
+  "validation": {
+    "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -q",
+    "tests": 157,
+    "result": "pass",
+    "elapsed_seconds": 11.738
+  },
+  "covered": [
+    "event_msg user_message and agent_message are diagnosed as unsupported and never extracted.",
+    "Unsupported-only files and mixed files retain the coverage gap; supported text and tool events survive.",
+    "event_msg token_count does not trigger a text-format warning.",
+    "Normal collection and provenance fixtures use response_item/message, including period boundaries.",
+    "Six synthetic sessions still retain 9 user messages, 22 assistant messages and paired tool events each."
+  ],
+  "limitations": [
+    "Synthetic script tests only; no new multi-turn writing evaluation or historical evidence recollection."
+  ],
+  "tested_sha256": {
+    "scripts/daily_report/session_events.py": "d83c8b1344180b9b18ba70ea3f03d0575a4a717b99ada19deefe5406093e047a",
+    "scripts/daily_report/sessions.py": "88f7919960bce184d6d54eea16df0c0e188316c1839b9c54e7b75aa7401782d8",
+    "scripts/daily_report/diagnostics.py": "a0e3abd993a4dc762f7fb7498e2ca0462b223ea85a2146a73d2798717e1c1617",
+    "tests/test_sessions.py": "25a70d254304c3eab35215023cdfd3fe65c836eb6c36070e1b154f402548141c",
+    "tests/test_evidence.py": "025554bcd8fe846a02f996dcaa0d6c7dda49f9e2bbe50eeda0419d5e13e61e52"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "date": "2026-11-15",
+  "kind": "collector_script_regression",
+  "defect": "Codex response_item/message text was silently omitted while tool records made the file appear healthy.",
+  "validation": {
+    "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -q",
+    "tests": 155,
+    "result": "pass",
+    "elapsed_seconds": 11.185
+  },
+  "reproduction": {
+    "input": "9 synthetic input_text user messages and 22 output_text assistant messages",
+    "before": {
+      "user_request": 0,
+      "assistant_statement": 0
+    },
+    "after": {
+      "user_request": 9,
+      "assistant_statement": 22
+    },
+    "baseline": "Pre-fix session_events.py from the Git index; same raw rows passed to both extractors."
+  },
+  "covered": [
+    "Real collection CLI on six isolated synthetic sessions, each with 9 user messages, 22 assistant messages and a paired tool call/result; all retained in evidence.json.",
+    "Legacy event_msg and response_item/message coexist; string bodies and text/input_text/output_text blocks are supported.",
+    "Source line, file, tool call ID and time-window boundaries are preserved; long event text is not truncated.",
+    "System/developer messages, injected blocks and media are excluded without swallowing an adjacent valid user request.",
+    "Unknown or malformed message content raises a dedicated diagnostic even when tool events survive; readable sibling blocks remain.",
+    "Unreadable messages without timestamps remain diagnostics rather than disappearing."
+  ],
+  "local_schema_spot_check": {
+    "method": "Read-only inspection of the six most recently modified local Codex session files; no raw text or paths saved here.",
+    "observed": "user/input_text and assistant/output_text response messages",
+    "unparsed_messages": 0,
+    "limitation": "This sample was not identified as the six sessions cited in the bug report; injected user context is intentionally filtered."
+  },
+  "limitations": [
+    "Historical evidence snapshots were not rewritten or recollected.",
+    "This is script validation, not a new multi-turn writing evaluation."
+  ],
+  "tested_sha256": {
+    "scripts/daily_report/session_events.py": "77cbc6c249b1052f1f02221a69090fc24406242e308b34354f2e5cb93eb57cc4",
+    "scripts/daily_report/sessions.py": "dff0407a45e622e912790059578cf990061f227e3381c63d70a1e5cd5ffe38bd",
+    "scripts/daily_report/diagnostics.py": "67503d24438e256de8f9d048325ac5d5a42f7876656a5884d2e9b2ad46d5eb38",
+    "scripts/daily_report/render.py": "73558853ef0d26a561172905a65c4cdb795a5ab080ae613b62e3ac422950ef40",
+    "tests/test_sessions.py": "2a2f878fd6f5b915d0d4e9c328b2cfd782ff26344de53871aa341a322e3b928e"
+  }
+}

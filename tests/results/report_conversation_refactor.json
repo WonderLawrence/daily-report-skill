@@ -1,0 +1,376 @@
+{
+  "fixture_id": "selection_documents_refresh",
+  "run_date": "2026-11-14",
+  "change": "document_and_shared_module_refactor",
+  "execution": {
+    "agent": "/root/report_layout_eval",
+    "same_agent_across_turns": true,
+    "inherited_history": false,
+    "model": "沿用本会话默认模型；未指定模型覆盖，精确运行时模型标识不可得",
+    "criteria_given_to_agent": false,
+    "future_turns_given_in_advance": false,
+    "reviewer": "主 agent 在收到各轮实际回复后核对 fixture criteria",
+    "tool_audit_provenance": "测试 agent 整理的工具记录；不是平台导出的原始日志"
+  },
+  "tested_sha256": {
+    "SKILL.md": "bc2aafb4058b0bd0afa4e6aa22797f28dc8d468e193ba316159356554eb3cc62",
+    "references/collection.md": "d640b37e71d025852595927ab40b80490801b1c5933c4124a94e4165f40d2855",
+    "references/interaction.md": "d81d5837ba876d5c22e67de5d1d6448a95c849bfd088cec2903806cd5cb9a6ab",
+    "references/writing.md": "b298d624a70f518d2614aeb9d16c7d5bce863ef725396ab72707215af7bbdcd7",
+    "tests/fixtures/report_conversation.json": "be5f34c1b1b586b9f9e81decf3cdb52b483cdd092c5eee675e738daea2d0e8fa"
+  },
+  "verdict": "pass",
+  "evaluations": [
+    {
+      "round": 1,
+      "criteria": [
+        "以工作事项组织候选，将 P1/C1/S1 关联为同一事项",
+        "恢复方案是独立候选，S3 不让用户选择",
+        "确认对象并补问文档，不生成最终日报"
+      ],
+      "verdict": "pass",
+      "observation": "从 SKILL.md 找到 interaction.md；P1/C1/S1 归为 W1，S2 独立，S3 未列候选；同时确认事项和补充文档，未生成报告。"
+    },
+    {
+      "round": 2,
+      "criteria": [
+        "直接处理所选工作，不重复询问已有选择",
+        "保留恢复方案排除状态",
+        "文档补充仍待答复，不写无其他文档，也不重复催问",
+        "只写有据进展，不编造测试或合并"
+      ],
+      "verdict": "pass",
+      "observation": "沿用 W1，排除恢复方案，不重问；文档待提供且没有被解释为无补充；明确本地提交及验证、PR 详情缺口。"
+    },
+    {
+      "round": 3,
+      "criteria": [
+        "文档直接纳入，不重问是否纳入或是否还有文档",
+        "与 RPC 修复合并为一个工作主题，不重复算成果",
+        "只归纳本人当天补充的章节，保留草稿待评审状态",
+        "恢复方案仍排除"
+      ],
+      "verdict": "pass",
+      "observation": "直接纳入本人当日文档贡献，与 RPC 修复合并；保留草稿待评审状态，未归入同事历史正文。"
+    },
+    {
+      "round": 4,
+      "criteria": [
+        "保留原先所选事项及文档，沿用编号及来源映射",
+        "不自行分析或纳入 P2；如提出扩展，仅提示新增候选",
+        "不重新询问整个清单，不恢复被排除的恢复方案",
+        "不因出现新候选阻塞已有范围的报告"
+      ],
+      "verdict": "pass",
+      "observation": "沿用选定工作及补充文档；没有纳入 P2 或恢复方案，没有重复选择或阻塞报告。"
+    }
+  ],
+  "limitations": [
+    "仅一段四轮合成对话的一次独立运行，不代表所有模型或所有输入均通过。",
+    "未实际运行 20 个独立 report_cases；本记录不宣称该完整套件通过。",
+    "没有访问真实用户会话、仓库或账号，未验证真实采集命令及 PR API 编排。"
+  ],
+  "transcript": {
+    "record_type": "synthetic_interaction_transcript",
+    "tool_record_provenance": "工具记录由执行 agent 根据本次可见的实际调用自行整理，不是平台原始日志。",
+    "access_scope": {
+      "instruction": "仅处理父 agent 逐轮提供的合成输入，按指定 SKILL.md 执行。允许读取指定输入、SKILL.md 及其链接的 references/*.md、README.md、examples/*.md；只在本次临时目录保存回复和操作记录。",
+      "actual_reads": [
+        "/Users/wanglang/Project/daily-report-skill/SKILL.md",
+        "/Users/wanglang/Project/daily-report-skill/references/interaction.md",
+        "/Users/wanglang/Project/daily-report-skill/references/collection.md",
+        "/Users/wanglang/Project/daily-report-skill/references/writing.md",
+        "/private/tmp/daily-report-layout-eval-2u1a0d4y/turn-1.json",
+        "/private/tmp/daily-report-layout-eval-2u1a0d4y/turn-2.json",
+        "/private/tmp/daily-report-layout-eval-2u1a0d4y/turn-3.json",
+        "/private/tmp/daily-report-layout-eval-2u1a0d4y/turn-4.json"
+      ],
+      "actual_write_directory": "/private/tmp/daily-report-layout-eval-2u1a0d4y",
+      "tests_read": false,
+      "future_inputs_read_before_provided": false,
+      "real_user_work_materials_read": false,
+      "network_used": false,
+      "real_collector_run": false,
+      "actual_user_question_tool_used": false,
+      "skill_modified": false,
+      "formal_report_directory_written": false,
+      "other_agents_spawned": false,
+      "note": "前几轮已读材料及已确认对话状态在后续轮次沿用，没有重新采集。归档内容取自已发生的对话与工具调用，归档步骤未新增读取。"
+    },
+    "turns": [
+      {
+        "turn": 1,
+        "input_path": "/private/tmp/daily-report-layout-eval-2u1a0d4y/turn-1.json",
+        "input": {
+          "user_request": "写 2026-10-16 acme-node 的日报，直接回复。",
+          "date": "2026-10-16",
+          "tool_artifact": {
+            "origin": "collector_generated",
+            "evidence": [
+              {
+                "id": "P1",
+                "kind": "pr_metadata",
+                "repo": "acme-node",
+                "url": "https://example.invalid/acme-node/pull/43",
+                "text": "PR #43：RPC 空结果编码修复；本人在 10 月 16 日有提交 C1。"
+              },
+              {
+                "id": "C1",
+                "kind": "commit",
+                "repo": "acme-node",
+                "at": "2026-10-16T10:00:00+08:00",
+                "text": "本人修改 RPC 编码器，将空结果输出为 null。仅有本地提交记录，没有测试或合并证据。"
+              },
+              {
+                "id": "S1",
+                "kind": "session_excerpt",
+                "repo": "acme-node",
+                "at": "2026-10-16T11:00:00+08:00",
+                "text": "用户请求：围绕 PR #43 核对空结果的兼容性。助手陈述：建议统一空结果约定；暂未运行测试。"
+              },
+              {
+                "id": "S2",
+                "kind": "session_excerpt",
+                "repo": "acme-node",
+                "at": "2026-10-16T12:00:00+08:00",
+                "text": "讨论恢复方案：比较快照恢复和日志回放，尚未实施。与 PR #43 无关联。"
+              },
+              {
+                "id": "S3",
+                "kind": "session_metadata",
+                "repo": "acme-node",
+                "at": "2026-10-16T13:00:00+08:00",
+                "text": "只有初始化、心跳和好的，无请求摘要，也无实际工具产出。"
+              }
+            ]
+          }
+        },
+        "final_response": "2026-10-16，acme-node 的记录中有两项候选工作：\n\n| 编号 | 工作事项 | 本期活动线索 | 来源 |\n|---|---|---|---|\n| W1 | RPC 空结果编码修复 | 有本地提交，并围绕空结果兼容性展开讨论 | PR #43（P1）、提交 C1、会话 S1 |\n| W2 | 存储恢复方案评估 | 比较快照恢复与日志回放，尚未实施 | 会话 S2 |\n\n请确认要纳入**全部、W1 或 W2**，也可以指定排除某个来源。\n\n当天是否还有当前仓库、PR 和会话范围之外的文档产出需要纳入，例如设计文档、评审记录或调研总结？可以提供链接、本地路径或内容，也可以说明没有补充。",
+        "tool_records": [
+          {
+            "sequence": 1,
+            "outer_tool": "functions.exec",
+            "mode": "Promise.allSettled 并行读取",
+            "operations": [
+              {
+                "tool": "exec_command",
+                "command": "cat /Users/wanglang/Project/daily-report-skill/SKILL.md",
+                "access": "read",
+                "path": "/Users/wanglang/Project/daily-report-skill/SKILL.md",
+                "exit_code": 0
+              },
+              {
+                "tool": "exec_command",
+                "command": "cat /private/tmp/daily-report-layout-eval-2u1a0d4y/turn-1.json",
+                "access": "read",
+                "path": "/private/tmp/daily-report-layout-eval-2u1a0d4y/turn-1.json",
+                "exit_code": 0
+              }
+            ]
+          },
+          {
+            "sequence": 2,
+            "outer_tool": "functions.exec",
+            "operations": [
+              {
+                "tool": "exec_command",
+                "command": "cat /Users/wanglang/Project/daily-report-skill/references/interaction.md",
+                "access": "read",
+                "path": "/Users/wanglang/Project/daily-report-skill/references/interaction.md",
+                "exit_code": 0
+              }
+            ]
+          },
+          {
+            "sequence": 3,
+            "outer_tool": "functions.exec",
+            "operations": [
+              {
+                "tool": "apply_patch",
+                "access": "write",
+                "operation": "Add File",
+                "paths": [
+                  "/private/tmp/daily-report-layout-eval-2u1a0d4y/turn-1-response.md",
+                  "/private/tmp/daily-report-layout-eval-2u1a0d4y/turn-1-operations.json"
+                ],
+                "returned_result": {}
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "turn": 2,
+        "input_path": "/private/tmp/daily-report-layout-eval-2u1a0d4y/turn-2.json",
+        "input": {
+          "user_request": "只总结 RPC 空结果编码修复，排除恢复方案评估。",
+          "date": "2026-10-16"
+        },
+        "final_response": "2026-10-16 acme-node 日报\n\nRPC 空结果编码修复：围绕 PR #43 调整 RPC 编码器，将空结果输出为 `null`，已形成本地提交。相关会话提出统一空结果约定的建议，但尚无兼容性验证结果或合并证据。\n\n本稿依据现有提交记录和会话片段；未取得 PR 完整说明、提交 diff，补充文档尚未提供。",
+        "tool_records": [
+          {
+            "sequence": 1,
+            "outer_tool": "functions.exec",
+            "operations": [
+              {
+                "tool": "exec_command",
+                "command": "cat /private/tmp/daily-report-layout-eval-2u1a0d4y/turn-2.json",
+                "access": "read",
+                "path": "/private/tmp/daily-report-layout-eval-2u1a0d4y/turn-2.json",
+                "exit_code": 0
+              }
+            ]
+          },
+          {
+            "sequence": 2,
+            "outer_tool": "functions.exec",
+            "mode": "Promise.allSettled 并行读取",
+            "operations": [
+              {
+                "tool": "exec_command",
+                "command": "cat /Users/wanglang/Project/daily-report-skill/references/collection.md",
+                "access": "read",
+                "path": "/Users/wanglang/Project/daily-report-skill/references/collection.md",
+                "exit_code": 0
+              },
+              {
+                "tool": "exec_command",
+                "command": "cat /Users/wanglang/Project/daily-report-skill/references/writing.md",
+                "access": "read",
+                "path": "/Users/wanglang/Project/daily-report-skill/references/writing.md",
+                "exit_code": 0
+              }
+            ]
+          },
+          {
+            "sequence": 3,
+            "outer_tool": "functions.exec",
+            "operations": [
+              {
+                "tool": "apply_patch",
+                "access": "write",
+                "operation": "Add File",
+                "paths": [
+                  "/private/tmp/daily-report-layout-eval-2u1a0d4y/turn-2-response.md",
+                  "/private/tmp/daily-report-layout-eval-2u1a0d4y/turn-2-operations.json"
+                ],
+                "returned_result": {}
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "turn": 3,
+        "input_path": "/private/tmp/daily-report-layout-eval-2u1a0d4y/turn-3.json",
+        "input": {
+          "user_request": "再把这份设计文档纳入：今天 14:00 我为 PR #43 补充了空结果兼容性说明，旧的接口总览是同事上周写的。文档仍是草稿，等待评审。直接更新刚才的日报。",
+          "date": "2026-10-16",
+          "tool_artifact": {
+            "origin": "user_supplied",
+            "evidence": [
+              {
+                "id": "D1",
+                "kind": "document_excerpt",
+                "title": "RPC 接口约定",
+                "url": "https://example.invalid/docs/rpc-contract",
+                "text": "关联 PR #43。今天补充：明确空结果输出 null，列出受影响客户端需要核对的兼容性问题；尚待评审。接口总览为上周已有内容。"
+              }
+            ]
+          }
+        },
+        "final_response": "2026-10-16 acme-node 日报\n\nRPC 空结果编码修复：围绕 PR #43 调整 RPC 编码器，将空结果输出为 `null`，已形成本地提交。同时补充[《RPC 接口约定》](https://example.invalid/docs/rpc-contract)的空结果兼容性说明，明确 `null` 输出约定，并列出受影响客户端需核对的问题；文档仍为草稿，等待评审。尚无兼容性验证结果或 PR 合并证据。\n\n本稿依据现有提交记录、会话片段及补充文档；未取得 PR 完整说明和提交 diff。",
+        "tool_records": [
+          {
+            "sequence": 1,
+            "outer_tool": "functions.exec",
+            "operations": [
+              {
+                "tool": "exec_command",
+                "command": "cat /private/tmp/daily-report-layout-eval-2u1a0d4y/turn-3.json",
+                "access": "read",
+                "path": "/private/tmp/daily-report-layout-eval-2u1a0d4y/turn-3.json",
+                "exit_code": 0
+              }
+            ]
+          },
+          {
+            "sequence": 2,
+            "outer_tool": "functions.exec",
+            "operations": [
+              {
+                "tool": "apply_patch",
+                "access": "write",
+                "operation": "Add File",
+                "paths": [
+                  "/private/tmp/daily-report-layout-eval-2u1a0d4y/turn-3-response.md",
+                  "/private/tmp/daily-report-layout-eval-2u1a0d4y/turn-3-operations.json"
+                ],
+                "returned_result": {}
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "turn": 4,
+        "input_path": "/private/tmp/daily-report-layout-eval-2u1a0d4y/turn-4.json",
+        "input": {
+          "user_request": "采集结果更新了，仍按之前选定的范围重写，直接回复。",
+          "date": "2026-10-16",
+          "tool_artifact": {
+            "origin": "collector_generated",
+            "evidence": [
+              {
+                "id": "P2",
+                "kind": "pr_metadata",
+                "repo": "acme-node",
+                "url": "https://example.invalid/acme-node/pull/44",
+                "text": "新增候选 PR #44：RPC 超时修复；本人有 15:00 的关联提交，与 PR #43 无关。"
+              }
+            ]
+          }
+        },
+        "final_response": "2026-10-16 acme-node 日报\n\nRPC 空结果编码修复：针对 PR #43，将 RPC 编码器的空结果输出调整为 `null`，已形成本地提交。同步补充[《RPC 接口约定》](https://example.invalid/docs/rpc-contract)的空结果兼容性说明，明确输出约定，并列出受影响客户端需核对的问题。文档仍为草稿，等待评审；兼容性验证结果和 PR 合并状态尚未确认。\n\n本稿沿用此前已选的提交记录、会话片段及补充文档；未取得 PR 完整说明和提交 diff。",
+        "tool_records": [
+          {
+            "sequence": 1,
+            "outer_tool": "functions.exec",
+            "operations": [
+              {
+                "tool": "exec_command",
+                "command": "cat /private/tmp/daily-report-layout-eval-2u1a0d4y/turn-4.json",
+                "access": "read",
+                "path": "/private/tmp/daily-report-layout-eval-2u1a0d4y/turn-4.json",
+                "exit_code": 0
+              }
+            ]
+          },
+          {
+            "sequence": 2,
+            "outer_tool": "functions.exec",
+            "operations": [
+              {
+                "tool": "apply_patch",
+                "access": "write",
+                "operation": "Add File",
+                "paths": [
+                  "/private/tmp/daily-report-layout-eval-2u1a0d4y/turn-4-response.md",
+                  "/private/tmp/daily-report-layout-eval-2u1a0d4y/turn-4-operations.json"
+                ],
+                "returned_result": {}
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "archival_operation": {
+      "source": "本次对话中已发生的输入、final 回复和工具调用",
+      "additional_reads": [],
+      "tool": "functions.exec 调用 apply_patch",
+      "access": "write",
+      "path": "/private/tmp/daily-report-layout-eval-2u1a0d4y/transcript.json"
+    }
+  }
+}

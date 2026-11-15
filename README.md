@@ -1,17 +1,52 @@
 # daily-report
 
-自用的日报/周报 skill：吃本地 **Git 提交** + **Claude Code / Codex / DSH（DeepSeek Harness）会话**，产出中文日报。
+自用的日报/周报 skill：以 **GitHub PR** 为索引采集 **本期本人提交**，加上 **Claude Code / Codex / DSH（DeepSeek Harness）会话**，结合用户补充文档产出中文日报。
+提交证据走两层遍历——先搜本期参与的 PR，再在 PR 内筛出本人、落在区间内的提交，最后回本地仓库补齐改动文件；确认工作事项后再读 PR Description 和 commit message。
 
 ```
 daily-report/
-├── SKILL.md                    # 入口：完整工作流（日期参数、核对、归纳、审稿）和硬性约束
-├── REFERENCE.md                # 查阅材料：模板、分栏依据、证据线索、周期粒度、反例、判读速查
-├── tests/                      # 采集器回归测试、报告质量验收说明及固定证据样例
-├── examples/2026-10-16.md      # 日报样例输出（项目名、编号均为虚构）
-├── examples/2026-10-12~2026-10-18.md # 主题归纳后的周报样例
-└── scripts/
-    ├── collect.py              # 采集器（仅标准库；DSH 会话走 zstd CLI）
-    └── config.example.json     # 配置样例
+├── SKILL.md                    # 执行入口：路由、主流程、关键约束和交付
+├── references/
+│   ├── collection.md           # 作者/项目/日期、采集操作和证据解释
+│   ├── interaction.md          # 候选筛选、用户确认和跨轮状态
+│   └── writing.md              # 贡献归纳、表达、模板和审稿
+├── examples/                   # 虚构的日报、周报示例
+├── scripts/
+│   ├── collect.py              # 采集 CLI：参数定义、渲染与落盘
+│   ├── pr_details.py           # 已选 PR 详情 CLI
+│   ├── sync_install.py         # 安装差异检查、备份与同步
+│   ├── config.example.json     # 配置样例
+│   └── daily_report/           # 被两个 CLI 调用的实现模块
+│       ├── settings.py         # 参数与配置合成运行设置
+│       ├── pipeline.py         # 采集编排：Git → PR → 会话 → 工作区状态
+│       ├── config.py           # 默认值、配置加载与校验
+│       ├── models.py           # Commit / Session / Event / Identity 等记录
+│       ├── diagnostics.py      # 采集诊断字段的唯一定义
+│       ├── gitlog.py           # 仓库发现、fetch、提交与未提交改动
+│       ├── sessions.py         # 会话扫描、解析与汇总
+│       ├── session_events.py   # 三种 agent 记录归一成事件
+│       ├── analysis.py         # 副本折叠、回退配对、关联线索、摘要额度
+│       ├── render.py           # Markdown 证据包渲染
+│       ├── evidence.py         # 脱敏、序列化与快照存储
+│       ├── github.py           # 只读 GitHub API 与本地提交信息
+│       ├── pr_report.py        # 已选 PR 的快照校验、读取与输出
+│       ├── text.py             # 正文与标识符的文本处理
+│       └── timewindow.py       # 采集区间 Period 与时间戳解析
+└── tests/
+    ├── helpers.py              # 共用的合成仓库、会话和 CLI 工具
+    ├── test_git.py             # 提交读取、作者匹配、去重与回退、工作区状态
+    ├── test_sessions.py        # 三种 agent 的会话发现与解析
+    ├── test_prs.py             # PR 两层遍历与已选 PR 详情
+    ├── test_fetch.py           # 远程同步开关与失败降级（本地裸仓库）
+    ├── test_evidence.py        # 覆盖诊断、来源可信度与快照
+    ├── test_render.py          # 证据包渲染与记录形状
+    ├── test_config.py          # 配置校验与采集区间
+    ├── test_cli.py             # 命令行行为：参数错误、交付、脱敏、保留
+    ├── test_scope.py           # 严格项目范围
+    ├── test_install.py         # 安装同步、备份与失败恢复
+    ├── REPORT_ACCEPTANCE.md    # 写稿行为验收方法
+    ├── fixtures/               # 固定输入及验收判据
+    └── results/                # 实际行为验收记录
 ```
 
 ## 安装
@@ -39,6 +74,20 @@ python3 ~/.agents/skills/daily-report/scripts/collect.py --date 2026-10-16
 
 看到 `[ok] N commits, M sessions -> <路径>` 就成了。
 
+更新工作区或远程仓库不会自动更新以前复制到 `~/.agents/skills/daily-report` 的安装副本。
+在本工作区执行以下命令检查并同步（也可用 `--dest <路径>` 指定安装目录）：
+
+```bash
+python3 scripts/sync_install.py --check
+python3 scripts/sync_install.py --apply
+```
+
+`--check` 只读比较文件内容，一致时退出码为 0，有差异为 1。
+`--apply` 复制并核验完整新版，将旧安装目录（含本地定制）移到同级 `.daily-report-backups/<时间戳>`，再替换安装目录；发布失败会恢复旧目录。
+安装包只包含入口、README、忽略规则、references、examples、scripts 和 tests，排除 Python 缓存及 Git 元数据。安装后 `.install-manifest.json` 保存来源和每个文件的 SHA-256。
+测试时先核对实际读取的 `SKILL.md` 路径；也可直接指定本工作区的绝对路径。
+若会话已经读取过旧版，需让 agent 重新读取指定文件；不能以工作区已修改推断当前会话已加载新规则。
+
 ## 身份配置
 
 ```bash
@@ -46,9 +95,10 @@ python3 ~/.agents/skills/daily-report/scripts/collect.py --whoami
 ```
 
 输出 git 全局身份、配置里的邮箱、以及每个仓库近 90 天的作者排行（命中配置的标 `<- 匹配`）。
-**只把自己的邮箱写进 `author_emails`**：团队仓库里同事的提交很常见，写错会把别人的活儿算成你的。
+**只把自己的邮箱写进 `author_emails`**：一个 PR 里可能混着多人的提交，写错会把别人的活儿算成你的。
+邮箱用于第二层筛选（自动模式下优先用 GitHub login，再按邮箱匹配）和本地未关联提交的计数。
 配置邮箱和回退使用的 Git 全局邮箱都按完整邮箱匹配（忽略大小写）；`+`、`.` 等字符按字面值处理。
-需要按作者姓名或正则筛选时，可显式传 `--author '<正则>'`，覆盖邮箱配置。
+需要按作者姓名或正则筛选时，可显式传 `--author '<正则>'`，覆盖邮箱配置，并禁用 login 匹配兜底。它只改变 PR 内及本地提交的作者筛选，不改变搜索 PR 所用的登录账号；`--any-author` 则取消作者筛选。
 
 脚本另有一道保险：出现「和你 `user.name` 同名、但邮箱不在配置里」的提交时打 `[warn]`，
 这才是"漏配身份"的真实信号；别人的提交不会报警。
@@ -68,13 +118,48 @@ python3 $S --print              # 打 stdout，不落盘
 python3 $S --force              # 保存独立快照后更新最新视图（agent 重新采集时使用）
 python3 $S --any-author         # 不过滤作者（团队仓库慎用）
 python3 $S --no-sessions        # 只看提交
+python3 $S --only-repo ~/Project/acme-node # 只采集该仓库及其项目会话
+python3 $S --only-repo ~/Project/acme-node --only-repo ~/Project/acme-sdk
+python3 $S --repo ~/other/repo  # 追加仓库，仍扫描默认根目录
+python3 $S --no-prs             # 不查询 GitHub PR
+python3 $S --no-fetch           # 离线采集，不更新远程跟踪引用
+python3 $S --fetch              # 显式开启 fetch，覆盖配置中的 fetch: false
+python3 $S --fetch-timeout 60   # 每次 Git 同步命令最多等待 60 秒
 python3 $S --no-redact          # 关闭证据包脱敏（默认开启）
 python3 $S --keep 10            # 最新 Markdown 视图只留最近 10 份；不删除历史快照
 python3 $S --max-sessions 10    # 展开 10 段详细摘要；完整索引和 JSON 不截断
 ```
 
-然后在 Claude Code / Codex / DSH 里说「写今天的日报」，agent 会读 `SKILL.md` 执行对应流程。
-提供完整证据时可直接写稿；仅润色现有文本时只编辑指定内容。受众、格式、篇幅和交付方式以用户要求为准，按需采集。
+然后在 Claude Code / Codex / DSH 里说「写今天的日报」，agent 从 [SKILL.md](SKILL.md) 按请求进入相应阶段。
+采集与证据解释见 [collection.md](references/collection.md)，确认与续写规则见 [interaction.md](references/interaction.md)，报告表达见 [writing.md](references/writing.md)。
+
+严格范围使用 `--only-repo`，CLI 优先于 `only_repos` 配置；`--repo` 只追加范围，与前者及非空 `only_repos` 配置互斥。
+独立 worktree 需要分别指定。范围外或项目无法确认的会话不进入证据列表，诊断保留计数。
+
+## Git 同步
+
+采集前默认执行 `git fetch --all --no-recurse-submodules`。`fetch` 默认 `true`，`fetch_timeout_seconds` 默认 `30`；CLI 的 `--fetch` / `--no-fetch`、`--fetch-timeout` 优先。
+`--no-fetch` 用于离线采集；`--print` 仅改变输出方式，仍会执行启用的网络采集。
+`--whoami`、禁用 Git 或无远程时不 fetch。同步失败会保存可得的本地证据并输出诊断；详细含义见 [同步与覆盖](references/collection.md#git-证据pr-两层遍历)。
+
+## GitHub PR 证据
+
+**提交证据依赖已安装且已登录的 `gh`**：第一层用 `search/issues` 按登录账号、起始时间和已限定的仓库分页搜索，第二层读每个 PR 的
+[提交列表](https://docs.github.com/en/rest/pulls/pulls#list-commits-on-a-pull-request)，按作者条件和 committer date 过滤。分页、平台上限与覆盖缺口见 [两层遍历](references/collection.md#git-证据pr-两层遍历)。
+本地仓库通过 github.com 的 HTTPS/SSH 远程映射到 `owner/repo`，用于按 SHA 解析改动文件、行数，以及 `--only-repo` 限定范围。
+
+| 配置 | 默认值 | 用途 |
+|---|---|---|
+| `github_prs` | `true` | 发现提交关联 PR；`--prs` / `--no-prs` 可覆盖。 |
+| `github_timeout_seconds` | `30` | 单次 GitHub 命令超时秒数。 |
+| `github_max_queries` | `200` | 搜索每页、每个 PR 的提交列表各计一次查询；账号查询不计入，提交列表内部自动分页。额度不足时保留候选并标记缺口。 |
+
+`--no-fetch` 或 `fetch: false` 同时禁用 PR 搜索（`--prs` 不覆盖离线设置），此时没有 Git 证据，只剩会话。
+`involves:` 不含提交作者，所以「他人创建、含本人提交、本人从未留言」的 PR 查不到；未在本次 PR 检索结果中找到关联的本地提交只在诊断里留一行计数。
+初次采集保存 PR 元数据；选中后用 `pr_details.py --evidence <快照/evidence.json> --pr owner/repo#编号 --out <路径.md>` 获取 Description 与逐条 commit message，多个 PR 重复 `--pr`，更新同名证据加 `--force`。
+已选 PR 不要求有区间内提交；评审、讨论、仅合并活动的 PR 都可读取描述和合并时间，不影响同批其他 PR。本人本期参与的内容需另有依据。
+脚本不采集 diff：commit message 说不清改动时，由 agent 按 SHA 自行 `git show` review。
+参数、证据含义及不支持的情况见 [PR 详情采集](references/collection.md#pr-description-与本期提交)。脚本不自动登录或修改远端，真实账号连通性需在实际使用时核实。
 
 ## 定时（可选）
 
@@ -101,41 +186,26 @@ launchctl load ~/Library/LaunchAgents/com.example.daily-report.plist
 
 ## 证据与历史快照
 
-默认最新视图为 `<reports_dir>/.evidence/<日期或区间>.md`。每次落盘都会先在
-`.evidence/.history/<最新视图文件名>/<UTC时间戳与唯一后缀>/` 保存：
+最新视图默认位于 `<reports_dir>/.evidence/<日期或区间>.md`；每次落盘同时保存独立历史快照：
 
-- `evidence.md`：本次证据，包含采集诊断、完整会话索引和选中的详细摘要。
-- `evidence.json`：所有已解析会话在所选区间内的完整请求、助手陈述、工具调用及结果；附带时间、源文件、行号和提交 SHA。
-- `previous.md`：覆盖前的最新视图（存在时），也兼容旧版未归档的证据包。
+```
+.evidence/.history/<最新视图文件名>/<UTC时间戳与唯一后缀>/
+├── evidence.md      # 本次 Markdown 证据
+├── evidence.json    # 结构化证据、完整事件及来源定位
+└── previous.md      # 覆盖前的最新视图（存在时）
+```
 
-JSON 采用 `schema_version: 1`；默认同样脱敏。每段会话的 `events` 按 `kind` 区分
-`user_request`、`assistant_statement`、`tool_call`、`tool_result`，`at` 为事件时间，
-`source` 和 `line` 定位原始 JSONL（DSH 行号按解压后的内容计算），`call_id` 用于关联调用与结果。
-Markdown 中的来源链接指向本次独立快照，回查不会混入后来生成的版本。
+`--max-sessions` 仅限制 Markdown 详细摘要，`--print` 不保存 JSON 或快照。
+`--keep` / `evidence_keep` 只清理最新视图，历史快照需自行管理，磁盘占用会随使用增长。
+字段、脱敏、重采差异和诊断解释见 [采集与证据核对](references/collection.md#输出与重采)。
 
-`max_sessions` 只限制 Markdown 详细摘要，按日期、项目轮流选择；所有已解析会话都保留在索引和 JSON 中。
-重采的提交数或会话数减少时，stderr 和最新视图都会提示变化；新旧证据不会自动合并。
-`--keep` / `evidence_keep` 只清理最新 Markdown 视图，`.history` 不自动清理，因此磁盘占用会随使用增长。
-`--print` 只输出 Markdown，不创建历史快照或 JSON；需要保存完整事件时使用默认落盘方式。
+Codex 文字统一读取 `response_item/message` 中的 `input_text`、`output_text`、`text` 块及字符串正文。`event_msg` 文字不进入证据，遇到时报告格式不支持；其中的 token 统计等非文字事件不触发此告警。系统/开发者消息和注入上下文不当作用户请求；图片、音频不转换成文字。
+会话诊断中的 `user_messages`、`assistant_messages` 是项目范围过滤前、时间窗口内提取到的文字事件数；`unparsed_messages` 表示格式不支持或内容无法完整解析的消息数（缺少时间戳的此类消息也计入缺口）。即使工具记录正常，文字解析缺口仍会单独告警，并保留可读部分。修复解析器后，旧证据需重新采集才能补齐。
 
-采集诊断区分未启用、来源不可用、部分失败和所选范围无记录；Git 以仓库为计数单位，会话以文件为计数单位。
-损坏记录会计入诊断，其他文件仍继续采集。扫描采用既定目录模式和 mtime 预筛，诊断不证明这些范围之外不存在记录。
+## 运行环境
 
-## 已知限制
-
-- 会话格式可能变化。部分文件读取/解析失败会写入诊断；完全无法识别时另发格式漂移提示。
-  能解析部分事件不代表支持所有未来格式，需要结合原始记录核对覆盖。
-- DSH 需要 `zstd` CLI，缺失时标记来源不可用；未识别的工具结果格式仍需回查原文。
-- 跨天会话按区间内事件采集，Codex 目录按开始日组织也会扫描到；mtime 预筛可能跳过时间戳不可靠的拷贝文件。
-- Markdown 摘要有损，长请求及输出会缩短，助手只展示末尾几条陈述；完整的已解析事件保存在 JSON。
-  助手陈述和本地 commit 均不证明已验证或已合并，关键状态需回查对应工具结果和后续事件。
-- `--date` 是结束日，`--days N` 含结束日；自然周用 `--week` 或 `--last-week`。
-- `config.dirty` 只在区间包含今天时生效；显式 `--dirty` 始终采集运行时快照。只统计 tracked 文件，未入索引的新文件不可见。
-  `stale_days` 仅标记长期无提交的仓库；最近提交时间不代表当前改动持续了多久，不能据此判断积压。
-- 日期归属按 committer date。rebase 会改写它；作者时间相差超过一天时另作标注。
-- 脱敏规则不完备；证据和快照包含会话原文，写稿时仍需检查，避免复制凭据。
-- `--since-as-filter` 遍历完整历史后过滤，大仓库上会更慢。
-- 只在 macOS + Python 3.11+ 上验证过。
+Python 3.11+，只使用标准库；提交证据需要已登录的 `gh`（PR 搜索）和 `git`（本地解析），DSH 会话需要 `zstd`。
+目前在 macOS 验证；会话格式、目录扫描和时间戳的覆盖限制见 [证据线索与覆盖缺口](references/collection.md#证据线索与覆盖缺口)。
 
 ## 验证
 

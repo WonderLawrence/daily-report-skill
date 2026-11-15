@@ -1,0 +1,374 @@
+{
+  "fixture": "tests/fixtures/report_conversation.json",
+  "date": "2026-11-15",
+  "phase": "pr_discovery_selection_author_filter_and_maintenance_fixes",
+  "execution": {
+    "agent": "/root/current_skill_behavior",
+    "same_agent_across_turns": true,
+    "inherited_history": false,
+    "model": "沿用本会话默认模型；未指定模型覆盖，精确运行时模型标识不可得",
+    "criteria_given_to_agent": false,
+    "future_turns_given_in_advance": false,
+    "reviewer": "主 agent 在收到各轮实际回复后核对 fixture criteria",
+    "tool_audit_provenance": "测试 agent 整理的工具行为摘要，不是平台导出的原始日志"
+  },
+  "tested_sha256": {
+    "SKILL.md": "410ba653ee31622b74222c2cc9adabeae048e9926df515d854528b41e0cc1fe6",
+    "references/collection.md": "6e789e536acf7a098d0577617c69114dd684de4d3d57d7c57440e112c5ad55fb",
+    "references/interaction.md": "d81d5837ba876d5c22e67de5d1d6448a95c849bfd088cec2903806cd5cb9a6ab",
+    "references/writing.md": "14f39a62d68967a3a17018d1dc5198a496e2c16bb6d4fac75ae340ee2efea9bd",
+    "tests/fixtures/report_conversation.json": "be5f34c1b1b586b9f9e81decf3cdb52b483cdd092c5eee675e738daea2d0e8fa"
+  },
+  "verdict": "pass",
+  "evaluations": [
+    {
+      "round": 1,
+      "criteria": [
+        "以工作事项组织候选，将 P1/C1/S1 关联为同一事项",
+        "恢复方案是独立候选，S3 不让用户选择",
+        "确认对象并补问文档，不生成最终日报"
+      ],
+      "verdict": "pass",
+      "observation": "P1/C1/S1 合为 W1，S2 单列 W2，S3 不进入候选；同次确认对象和补充文档，尚未生成日报。",
+      "claim_support": {
+        "RPC 编码器提交与兼容性会话属于同一事项": [
+          "P1",
+          "C1",
+          "S1"
+        ],
+        "恢复方案是独立候选": [
+          "S2"
+        ]
+      }
+    },
+    {
+      "round": 2,
+      "criteria": [
+        "直接处理所选工作，不重复询问已有选择",
+        "保留恢复方案排除状态",
+        "文档补充仍待答复，不写无其他文档，也不重复催问",
+        "只写有据进展，不编造测试或合并"
+      ],
+      "verdict": "pass",
+      "observation": "只处理 W1，W2 保持排除；文档状态待答复且没有重复催问；本地提交与测试、合并未知分开表述，并说明 PR 描述缺口。",
+      "claim_support": {
+        "空结果输出 null，已形成本地提交": [
+          "C1"
+        ],
+        "会话建议统一约定、没有测试结果": [
+          "S1"
+        ],
+        "合并与 PR 描述缺少依据": [
+          "P1",
+          "C1"
+        ]
+      }
+    },
+    {
+      "round": 3,
+      "criteria": [
+        "文档直接纳入，不重问是否纳入或是否还有文档",
+        "与 RPC 修复合并为一个工作主题，不重复算成果",
+        "只归纳本人当天补充的章节，保留草稿待评审状态",
+        "恢复方案仍排除"
+      ],
+      "verdict": "pass",
+      "observation": "D1 直接加入 W1，仅归纳本人本期补充的空结果兼容性说明，保留草稿待评审状态；未计入同事旧章节，也未重新确认。",
+      "claim_support": {
+        "RPC 改动和本地提交": [
+          "C1"
+        ],
+        "本人新增兼容性说明、草稿待评审": [
+          "D1",
+          "turn3.request"
+        ],
+        "兼容性验证与合并未确认": [
+          "C1",
+          "S1"
+        ]
+      }
+    },
+    {
+      "round": 4,
+      "criteria": [
+        "保留原先所选事项及文档，沿用编号及来源映射",
+        "不自行分析或纳入 P2；如提出扩展，仅提示新增候选",
+        "不重新询问整个清单，不恢复被排除的恢复方案",
+        "不因出现新候选阻塞已有范围的报告"
+      ],
+      "verdict": "pass",
+      "observation": "沿用 W1 和 D1；内部映射将 P2 记为待选 W3，未分析或纳入正文；W2 仍排除，没有重复选择或阻塞交付。",
+      "claim_support": {
+        "RPC 改动和本地提交": [
+          "C1"
+        ],
+        "本人新增兼容性说明、草稿待评审": [
+          "D1",
+          "turn3.request"
+        ],
+        "验证与合并未确认": [
+          "C1",
+          "S1"
+        ]
+      }
+    }
+  ],
+  "script_validation": {
+    "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -q",
+    "result": "149 tests passed",
+    "elapsed_seconds": 11.026,
+    "scope": "本地临时仓库与模拟 GitHub 响应；未访问真实账号",
+    "note": "测试后仅调整 collect.py 的参数帮助文字，并执行 --help 验证；脚本逻辑未再变更。",
+    "sha256_at_recording": {
+      "scripts/collect.py": "8d0e5088f536934fbc3dfbdc650d19ab41b30ea42093fea159e19fc55c31d52a",
+      "scripts/daily_report/__init__.py": "0257a82854884f8673dbc2b0269bf6be6059e8c39436d2b61e564cab4c898a91",
+      "scripts/daily_report/analysis.py": "8c86ac6516a0401ce88dde00f6692383d772a4282bc34dc630af3eb02ff12b13",
+      "scripts/daily_report/config.py": "f3f70ee94c0b920abe552d06dda3fb9d0d2eba09fa2de68040b085ebb6a427bc",
+      "scripts/daily_report/diagnostics.py": "21cb75a58bf9c72ca07c7c3171828edcb855bcec02a32cbe295aad479d9bbda6",
+      "scripts/daily_report/evidence.py": "290a9860f370ff2d4852de81a74530365a5b319018b00de9d41bc98db264edc3",
+      "scripts/daily_report/github.py": "368d5b757168e32cd9ea88d37ca11210861dea0955e2772ae7c0421dbff9f2cf",
+      "scripts/daily_report/gitlog.py": "e7cc91e302fb261e7b995c581b7c9125ae0d31ad886a98ce5d4bbe87f55127ca",
+      "scripts/daily_report/models.py": "6b378ba9a95733adf4d9a322a81cc7ecf378f0cae58d671528d5390f6b58dcae",
+      "scripts/daily_report/pipeline.py": "f0b5e4a96109f6440428229cb0cc4010d8786076825b3006c5c4e14f6913f871",
+      "scripts/daily_report/pr_report.py": "65c80b3cc70b6ff0641435be920bbc22eb7c146485db282baa6fb5aa4f50afea",
+      "scripts/daily_report/render.py": "515b3b46d46920749b50ecf77dc74d5ab76715ad87e6464ef179189703b99cf8",
+      "scripts/daily_report/session_events.py": "37bf4216e9d29a4b56d4badc68eb60256dc5d9229fa715cd72991890c1738926",
+      "scripts/daily_report/sessions.py": "d994ca29ed034345e970224670ca8564db335170de78f4cd88767444b95f9396",
+      "scripts/daily_report/settings.py": "434fa3d3edef82085c13d7275022e40a33fbb6fff8e3385151cebdcb5658d1b6",
+      "scripts/daily_report/text.py": "09f4faeb5eff21adafae8714825b492655bb08567b632289e7e9b2d9c04c487f",
+      "scripts/daily_report/timewindow.py": "862cc52fc41870d7718156e9dc9fe0b537913befa453260b1e075e78e1e00e1b",
+      "scripts/pr_details.py": "62c03891dd908a7891b1e3cbc43422411fceabb74e160296f66865c174f815b5",
+      "scripts/sync_install.py": "3d581a8dd31184715350aede07dbea3bf05952433bb1ee911d8c60d0cc4521d0",
+      "tests/helpers.py": "f8400a6a5af4b472d67eb9e36da189f9e6a23b329ae64708a2f557ac45de8063",
+      "tests/test_cli.py": "055208d5624bd15017fc0b859eda6e9928842918cf05277535fd3d61cc37e6a9",
+      "tests/test_config.py": "9dffb53dbda2d55772f0170305c806e4ed6861f9ba0b595e5b74871674572312",
+      "tests/test_evidence.py": "07517ce3f46a4ede41de17c70a4cffdd0e7c8adc4a9716aaf4c11a1f8b8345c5",
+      "tests/test_fetch.py": "f434f4287906fd135d637e40b0fd156b05e1596c8605559582a09bb78ddbd8d2",
+      "tests/test_git.py": "0dc9bdc30e934e219c6c5e2f0965110dcdf01592f409720676dbf7896f53412e",
+      "tests/test_install.py": "7b01b5e202b70f1e9f6f163e6b687790ccad4e8d731468a995d58b5e67cc7fd2",
+      "tests/test_prs.py": "eb3bfd09e01357a65c53b08dc378e396fd3c7b9ae716536db93c4ca36206afd4",
+      "tests/test_render.py": "6236f958fb5d6cd3010089e77a0aef4d2e946f039e7210d02340d078c1cef303",
+      "tests/test_scope.py": "c9e94339d8bcb1da30f98f2af928de126448c352fd03a5042dd6cb522fde90bd",
+      "tests/test_sessions.py": "4165cd6938cd5c50c7a6a81e0d6dc9a7040f8c055acbf9a28c952a79415518bb"
+    }
+  },
+  "limitations": [
+    "仅一次四轮合成对话，不代表所有模型或所有输入均通过。",
+    "未执行 report_cases.json 的全部 20 个独立案例。",
+    "未访问真实用户数据或网络；真实账号连通性、真实 PR API 编排不在本次行为验证范围。",
+    "PR 搜索分页、覆盖诊断、作者筛选及无提交 PR 详情由脚本模拟测试验证。"
+  ],
+  "transcript": {
+    "turns": [
+      {
+        "turn": 1,
+        "input_path": "/private/var/folders/yv/fdnphg8d77n6r2k54n12hnhh0000gn/T/daily-report-current-eval-guh7o_47/turn1.json",
+        "actual_reply": "根据当前采集结果，2026-10-16 的 acme-node 工作可归为以下两项：\n\n| 编号 | 工作事项 | 本期活动线索 | 来源 |\n|---|---|---|---|\n| W1 | RPC 空结果编码修复 | 本人有编码器修改提交，相关会话讨论空结果兼容性 | PR #43（P1）、提交 C1、会话 S1 |\n| W2 | 恢复方案评估 | 比较快照恢复与日志回放，尚未实施 | 会话 S2 |\n\n请选“全部”、事项编号，或说明要排除的事项或来源。\n\n这段时间是否还有仓库、PR 和会话范围之外的文档产出需要纳入，例如设计文档、评审记录或调研总结？可以提供链接、本地路径或内容，也可以说明没有补充。",
+        "tool_behavior_summary": [
+          "只读取 skill-creator/SKILL.md、测试技能 SKILL.md、其 references/interaction.md 及本轮 turn1.json。",
+          "使用给定合成采集结果初筛：合并 P1、C1、S1 为 W1；S2 独立为 W2；过滤只有初始化、心跳和“好的”的 S3。",
+          "未运行采集器，未访问真实用户数据、仓库内容、网络或 tests；未深入核验待选事项，未生成正式报告。",
+          "仅向当前临时目录写入 transcript.json；模拟用户问题写在实际回复中，未调用用户输入工具。"
+        ],
+        "scope_state": {
+          "date": "2026-10-16",
+          "project": "acme-node",
+          "items": {
+            "W1": {
+              "sources": [
+                "P1",
+                "C1",
+                "S1"
+              ],
+              "status": "pending"
+            },
+            "W2": {
+              "sources": [
+                "S2"
+              ],
+              "status": "pending"
+            }
+          },
+          "documents": "pending_answer"
+        },
+        "actual_input": {
+          "id": "selection_documents_refresh",
+          "date": "2026-10-16",
+          "origin": "collector_generated",
+          "initial_evidence": [
+            {
+              "id": "P1",
+              "kind": "pr_metadata",
+              "repo": "acme-node",
+              "url": "https://example.invalid/acme-node/pull/43",
+              "text": "PR #43：RPC 空结果编码修复；本人在 10 月 16 日有提交 C1。"
+            },
+            {
+              "id": "C1",
+              "kind": "commit",
+              "repo": "acme-node",
+              "at": "2026-10-16T10:00:00+08:00",
+              "text": "本人修改 RPC 编码器，将空结果输出为 null。仅有本地提交记录，没有测试或合并证据。"
+            },
+            {
+              "id": "S1",
+              "kind": "session_excerpt",
+              "repo": "acme-node",
+              "at": "2026-10-16T11:00:00+08:00",
+              "text": "用户请求：围绕 PR #43 核对空结果的兼容性。助手陈述：建议统一空结果约定；暂未运行测试。"
+            },
+            {
+              "id": "S2",
+              "kind": "session_excerpt",
+              "repo": "acme-node",
+              "at": "2026-10-16T12:00:00+08:00",
+              "text": "讨论恢复方案：比较快照恢复和日志回放，尚未实施。与 PR #43 无关联。"
+            },
+            {
+              "id": "S3",
+              "kind": "session_metadata",
+              "repo": "acme-node",
+              "at": "2026-10-16T13:00:00+08:00",
+              "text": "只有初始化、心跳和好的，无请求摘要，也无实际工具产出。"
+            }
+          ],
+          "request": "写 2026-10-16 acme-node 的日报，直接回复。"
+        }
+      },
+      {
+        "turn": 2,
+        "input_path": "/private/var/folders/yv/fdnphg8d77n6r2k54n12hnhh0000gn/T/daily-report-current-eval-guh7o_47/turn2.json",
+        "actual_input": {
+          "request": "只总结 RPC 空结果编码修复，排除恢复方案评估。"
+        },
+        "actual_reply": "**2026-10-16 工作日报 · acme-node**\n\n围绕 PR #43 修改 RPC 编码器，将空结果输出为 `null`，已形成本地提交。相关会话提出统一空结果约定的建议；兼容性验证及合并状态尚未确认。\n\n以上依据已选提交与相关会话整理。当前缺少完整 PR 描述，补充文档尚未确认。",
+        "tool_behavior_summary": [
+          "读取本轮 turn2.json，以及测试技能链接的 references/collection.md 和 references/writing.md。",
+          "沿用已知合成证据，将 W1（P1、C1、S1）设为已选，W2（S2）设为排除；文档补充状态继续待答复。",
+          "基于已选合成提交与会话撰写并审改日报，保留本地提交、验证和合并状态限定；说明完整 PR 描述及文档覆盖缺口，不重复追问文档。",
+          "未运行采集器、PR 查询、真实仓库 diff 或网络操作；仅在临时目录追加 transcript.json，按用户要求直接回复日报，不另存报告。"
+        ],
+        "scope_state": {
+          "date": "2026-10-16",
+          "project": "acme-node",
+          "items": {
+            "W1": {
+              "sources": [
+                "P1",
+                "C1",
+                "S1"
+              ],
+              "status": "selected"
+            },
+            "W2": {
+              "sources": [
+                "S2"
+              ],
+              "status": "excluded"
+            }
+          },
+          "documents": "pending_answer"
+        }
+      },
+      {
+        "turn": 3,
+        "input_path": "/private/var/folders/yv/fdnphg8d77n6r2k54n12hnhh0000gn/T/daily-report-current-eval-guh7o_47/turn3.json",
+        "actual_input": {
+          "request": "再把这份设计文档纳入：今天 14:00 我为 PR #43 补充了空结果兼容性说明，旧的接口总览是同事上周写的。文档仍是草稿，等待评审。直接更新刚才的日报。",
+          "evidence_additions": [
+            {
+              "id": "D1",
+              "kind": "document_excerpt",
+              "title": "RPC 接口约定",
+              "url": "https://example.invalid/docs/rpc-contract",
+              "text": "关联 PR #43。今天补充：明确空结果输出 null，列出受影响客户端需要核对的兼容性问题；尚待评审。接口总览为上周已有内容。"
+            }
+          ]
+        },
+        "actual_reply": "**2026-10-16 工作日报 · acme-node**\n\n围绕 PR #43 修改 RPC 编码器，将空结果输出为 `null`，已形成本地提交；同时补充《[RPC 接口约定](https://example.invalid/docs/rpc-contract)》的空结果兼容性说明，明确返回约定并列出需核对的客户端兼容性问题。文档仍为草稿、等待评审，兼容性验证及 PR 合并状态尚未确认。\n\n当前依据已选提交、相关会话及文档节选整理，尚缺完整 PR 描述。",
+        "tool_behavior_summary": [
+          "仅读取本轮 turn3.json，使用其中合成文档节选 D1 及用户关于本人当期贡献和草稿状态的说明。",
+          "将明确关联 PR #43 的文档 D1 加入既有已选 W1，文档补充状态更新为已提供；保留 W2 排除状态。",
+          "更新并审改上一轮日报：合并代码与文档活动，保留本地提交、草稿待评审、验证和合并未确认状态；不将同事上周的接口总览算作本人当期成果。",
+          "未重新询问已确认范围，未读取外部文档链接、运行采集器或访问真实数据；仅向临时目录 transcript.json 追加记录。"
+        ],
+        "scope_state": {
+          "date": "2026-10-16",
+          "project": "acme-node",
+          "items": {
+            "W1": {
+              "sources": [
+                "P1",
+                "C1",
+                "S1",
+                "D1"
+              ],
+              "status": "selected"
+            },
+            "W2": {
+              "sources": [
+                "S2"
+              ],
+              "status": "excluded"
+            }
+          },
+          "documents": "provided",
+          "document_scope": "D1 中本人当期补充的空结果兼容性说明，草稿待评审；不纳入上周已有接口总览"
+        }
+      },
+      {
+        "turn": 4,
+        "input_path": "/private/var/folders/yv/fdnphg8d77n6r2k54n12hnhh0000gn/T/daily-report-current-eval-guh7o_47/turn4.json",
+        "actual_input": {
+          "request": "采集结果更新了，仍按之前选定的范围重写，直接回复。",
+          "evidence_additions": [
+            {
+              "id": "P2",
+              "kind": "pr_metadata",
+              "repo": "acme-node",
+              "url": "https://example.invalid/acme-node/pull/44",
+              "text": "新增候选 PR #44：RPC 超时修复；本人有 15:00 的关联提交，与 PR #43 无关。"
+            }
+          ]
+        },
+        "actual_reply": "**2026-10-16 工作日报 · acme-node**\n\n推进 PR #43 的 RPC 空结果编码修复：将空结果输出调整为 `null`，已完成本地提交。同步补充《[RPC 接口约定](https://example.invalid/docs/rpc-contract)》中的空结果兼容性说明，明确返回约定，并列出受影响客户端需核对的兼容性问题。文档仍为草稿、等待评审；兼容性验证及 PR 合并状态尚未确认。\n\n当前依据已选提交、相关会话及文档节选整理，尚缺完整 PR 描述。",
+        "tool_behavior_summary": [
+          "仅读取本轮 turn4.json，识别新增合成候选 P2（PR #44，RPC 超时修复）。",
+          "按用户明确要求沿用原选择：W1 及 D1 保持已选，W2 保持排除；新增 P2 赋予稳定编号 W3 并保留待选，不自动纳入既有报告。",
+          "仅重写原已选工作，保留本地提交、草稿待评审及验证和合并未确认状态；用户未要求扩大范围，因此没有为新候选再次询问或阻塞交付。",
+          "未执行真实采集、仓库操作或网络访问，未写报告文件；仅在隔离临时目录追加 transcript.json。"
+        ],
+        "scope_state": {
+          "date": "2026-10-16",
+          "project": "acme-node",
+          "items": {
+            "W1": {
+              "sources": [
+                "P1",
+                "C1",
+                "S1",
+                "D1"
+              ],
+              "status": "selected"
+            },
+            "W2": {
+              "sources": [
+                "S2"
+              ],
+              "status": "excluded"
+            },
+            "W3": {
+              "sources": [
+                "P2"
+              ],
+              "status": "pending",
+              "title": "RPC 超时修复"
+            }
+          },
+          "documents": "provided",
+          "document_scope": "D1 中本人当期补充的空结果兼容性说明，草稿待评审；不纳入上周已有接口总览"
+        }
+      }
+    ]
+  }
+}
