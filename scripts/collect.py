@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
-"""Collect this period's work evidence: parse arguments, resolve settings, collect, render, write.
+"""Collect this period's work evidence: parse arguments, resolve settings,
+collect, render, write.
 
-Evidence comes from two paths. Commits go through the two level PR traversal: search the
-PRs involved this period, keep the user's commits inside them whose committer date falls in
-the window, then fill in the changes from local repositories by SHA. Sessions are read from
+Evidence comes from two paths. Commits go through the two level PR traversal:
+search the
+PRs involved this period, keep the user's commits inside them whose committer
+date falls in
+the window, then fill in the changes from local repositories by SHA. Sessions
+are read from
 the local Claude Code / Codex / DSH records.
 
 Usage is documented in README.md and the meaning of the evidence in
-references/collection.md; the rest of the implementation lives in the daily_report package.
+references/collection.md; the rest of the implementation lives in the
+daily_report package.
 Evidence and diagnostics are in Chinese; CLI help is in English.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -18,8 +24,13 @@ import sys
 
 from daily_report import messages as m
 from daily_report.config import default_config_path
-from daily_report.evidence import (EvidenceWriteError, json_evidence, prune_evidence,
-                                   redact_text, write_evidence)
+from daily_report.evidence import (
+    EvidenceWriteError,
+    json_evidence,
+    prune_evidence,
+    redact_text,
+    write_evidence,
+)
 from daily_report.gitlog import print_identity_report
 from daily_report.models import ArtifactKind, Report
 from daily_report.pipeline import run_collection
@@ -42,11 +53,19 @@ def build_parser() -> argparse.ArgumentParser:
     repos.add_argument("--only-repo", action="append", help=m.CLI_HELP_ONLY_REPO)
     ap.add_argument("--any-author", action="store_true", help=m.CLI_HELP_ANY_AUTHOR)
     ap.add_argument("--no-git", action="store_true", help=m.CLI_HELP_NO_GIT)
-    ap.add_argument("--fetch", action=argparse.BooleanOptionalAction, default=None,
-                    help=m.CLI_HELP_FETCH)
+    ap.add_argument(
+        "--fetch",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=m.CLI_HELP_FETCH,
+    )
     ap.add_argument("--fetch-timeout", type=int, help=m.CLI_HELP_FETCH_TIMEOUT)
-    ap.add_argument("--prs", action=argparse.BooleanOptionalAction, default=None,
-                    help=m.CLI_HELP_PRS)
+    ap.add_argument(
+        "--prs",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=m.CLI_HELP_PRS,
+    )
     ap.add_argument("--no-sessions", action="store_true", help=m.CLI_HELP_NO_SESSIONS)
     ap.add_argument("--dirty", action="store_true", help=m.CLI_HELP_DIRTY)
     ap.add_argument("--no-redact", action="store_true", help=m.CLI_HELP_NO_REDACT)
@@ -83,10 +102,20 @@ def emit(report: Report, output) -> int:
         print(m.STATUS_ERROR_PREFIX.format(detail=exc), file=sys.stderr)
         return 2
     if output.json_output:
-        print(json.dumps({**written.receipt(), "artifact_kind": ArtifactKind.COLLECTION,
-                          "generated_at": evidence["generated_at"],
-                          "counts": {"commits": len(report.commits), "sessions": len(report.sessions)}},
-                         ensure_ascii=False))
+        print(
+            json.dumps(
+                {
+                    **written.receipt(),
+                    "artifact_kind": ArtifactKind.COLLECTION,
+                    "generated_at": evidence["generated_at"],
+                    "counts": {
+                        "commits": len(report.commits),
+                        "sessions": len(report.sessions),
+                    },
+                },
+                ensure_ascii=False,
+            )
+        )
     print(m.STATUS_OK_TO_PATH.format(counts=counts, path=path), file=sys.stderr)
     if output.keep > 0 and path.parent == output.evidence_dir:
         prune_evidence(output.evidence_dir, output.keep)
@@ -106,8 +135,12 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as e:
         parser.error(str(e))
     if args.whoami:
-        print_identity_report(settings.repos, settings.repos_root,
-                              settings.author_emails, settings.identity)
+        print_identity_report(
+            settings.repos,
+            settings.repos_root,
+            settings.author_emails,
+            settings.identity,
+        )
         return 0
     return emit(run_collection(settings), settings.output)
 

@@ -1,7 +1,9 @@
 """Merge command line arguments and configuration into one run setting.
 
-Collection reads this object alone and never goes back to args or the config dict.
+Collection reads this object alone and never goes back to args or the config
+dict.
 """
+
 from __future__ import annotations
 
 import shutil
@@ -12,7 +14,7 @@ from pathlib import Path
 
 from . import messages as m
 from .config import load_config, validate_config
-from .github import repo_index
+from .github import index_repositories
 from .gitlog import author_regex, discover_repos, git_config_value
 from .models import Identity
 from .sessions import SESSION_SOURCES
@@ -22,12 +24,16 @@ SESSION_NAMES = tuple(source.name for source in SESSION_SOURCES)
 
 
 class MissingGit(Exception):
-    """git is missing from PATH: stop before reading any repository, not halfway through."""
+    """git is missing from PATH: stop before reading any repository, not halfway
+    through.
+    """
 
 
 @dataclass(frozen=True)
 class GitOptions:
-    """Git side switches: fetch decides whether a PR's SHAs can be resolved locally."""
+    """Git side switches: fetch decides whether a PR's SHAs can be resolved
+    locally.
+    """
 
     enabled: bool = True
     fetch: bool = True
@@ -36,7 +42,9 @@ class GitOptions:
 
 @dataclass(frozen=True)
 class GitHubOptions:
-    """Switch and budget for the two level PR traversal; disabled entirely when offline."""
+    """Switch and budget for the two level PR traversal; disabled entirely when
+    offline.
+    """
 
     enabled: bool = True
     timeout: int = 30
@@ -45,7 +53,9 @@ class GitHubOptions:
 
 @dataclass(frozen=True)
 class SessionOptions:
-    """Session sources and the detailed summary budget, which never truncates the index."""
+    """Session sources and the detailed summary budget, which never truncates
+    the index.
+    """
 
     sources: frozenset[str] = frozenset()
     limit: int = 30
@@ -68,7 +78,9 @@ class OutputOptions:
         return self.reports_dir / ".evidence"
 
     def evidence_path(self, period: Period) -> Path:
-        """Default latest view: <YYYYMMDD>.md for one day, <YYYYMMDD>-<N>d.md for more."""
+        """Default latest view: <YYYYMMDD>.md for one day, <YYYYMMDD>-<N>d.md
+        for more.
+        """
         if self.path:
             return self.path
         name = f"{period.start:%Y%m%d}" + (f"-{period.days}d" if period.days > 1 else "") + ".md"
@@ -83,7 +95,7 @@ class Settings:
     identity: Identity
     repos: list[Path] = field(default_factory=list)
     repo_index: dict[str, Path] = field(default_factory=dict)
-    project_roots: list[Path] | None = None     # --only-repo / only_repos: a strict scope
+    project_roots: list[Path] | None = None  # --only-repo / only_repos: a strict scope
     repos_root: Path = Path()
     author_emails: list[str] = field(default_factory=list)
     git: GitOptions = GitOptions()
@@ -106,7 +118,9 @@ def _pick(cli_value, config_value):
 
 
 def _resolve_scope(args, cfg: dict, git_enabled: bool) -> tuple[list[Path], list[Path] | None]:
-    """--only-repo / only_repos is a strict scope; --repo only appends. They are exclusive."""
+    """--only-repo / only_repos is a strict scope; --repo only appends. They are
+    exclusive.
+    """
     only = args.only_repo if args.only_repo is not None else cfg["only_repos"]
     if only and args.repo:
         raise ValueError(m.CLI_ERR_REPO_CONFLICT)
@@ -115,20 +129,31 @@ def _resolve_scope(args, cfg: dict, git_enabled: bool) -> tuple[list[Path], list
         if not path.is_dir():
             raise ValueError(m.CLI_ERR_ONLY_REPO_NOT_DIR.format(path=path))
         if git_enabled:
-            result = subprocess.run(["git", "-C", str(path), "rev-parse", "--show-toplevel"],
-                                    capture_output=True, text=True)
+            result = subprocess.run(
+                ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
             if result.returncode or Path(result.stdout.strip()).resolve() != path:
                 raise ValueError(m.CLI_ERR_ONLY_REPO_NOT_REPO.format(path=path))
     if not git_enabled:
         return [], roots
-    repos = roots if roots is not None else (
-        [Path(p).expanduser().resolve() for p in args.repo]
-        + discover_repos(Path(args.repos_root or cfg["repos_root"]).expanduser().resolve()))
+    repos = (
+        roots
+        if roots is not None
+        else (
+            [Path(p).expanduser().resolve() for p in args.repo]
+            + discover_repos(Path(args.repos_root or cfg["repos_root"]).expanduser().resolve())
+        )
+    )
     return list(dict.fromkeys(path.resolve() for path in repos)), roots
 
 
 def resolve_settings(args) -> Settings:
-    """Merge arguments and configuration; unusable values raise ValueError for exit code 2."""
+    """Merge arguments and configuration; unusable values raise ValueError for
+    exit code 2.
+    """
     if args.days is not None and args.days < 1:
         raise ValueError(m.CLI_ERR_DAYS_MIN)
     if (args.week or args.last_week) and (args.date or args.days is not None):
@@ -153,13 +178,21 @@ def resolve_settings(args) -> Settings:
         raise ValueError(m.CLI_ERR_FETCH_TIMEOUT_MIN)
 
     tz = timezone_from_offset(float(cfg["utc_offset_hours"]))
-    period = resolve_period(args.date, 1 if args.days is None else args.days, tz,
-                            week="this" if args.week else "last" if args.last_week else None)
+    period = resolve_period(
+        args.date,
+        1 if args.days is None else args.days,
+        tz,
+        week="this" if args.week else "last" if args.last_week else None,
+    )
     email = git_config_value("user.email")
     emails = cfg["author_emails"] or [email]
-    identity = Identity(author_regex(args.author, emails), args.any_author,
-                        git_config_value("user.name"), email,
-                        author_explicit=args.author is not None)
+    identity = Identity(
+        author_regex(args.author, emails),
+        args.any_author,
+        git_config_value("user.name"),
+        email,
+        author_explicit=args.author is not None,
+    )
 
     sources = cfg.get("sources", {})
     git_enabled = not args.no_git and sources.get("git", True)
@@ -170,21 +203,36 @@ def resolve_settings(args) -> Settings:
     github_timeout = cfg["github_timeout_seconds"]
 
     return Settings(
-        period=period, identity=identity, repos=repos, project_roots=project_roots,
-        repo_index=repo_index(repos, github_timeout) if git_enabled else {},
+        period=period,
+        identity=identity,
+        repos=repos,
+        project_roots=project_roots,
+        repo_index=index_repositories(repos, github_timeout) if git_enabled else {},
         repos_root=Path(args.repos_root or cfg["repos_root"]).expanduser().resolve(),
         author_emails=cfg["author_emails"],
         git=GitOptions(git_enabled, fetch, fetch_timeout),
-        # Offline collection never queries GitHub: --prs does not override --no-fetch
-        github=GitHubOptions(_pick(args.prs, cfg["github_prs"]) and fetch and git_enabled,
-                             github_timeout, cfg["github_max_queries"]),
+        # Offline collection never queries GitHub: --prs does not override
+        # --no-fetch
+        github=GitHubOptions(
+            _pick(args.prs, cfg["github_prs"]) and fetch and git_enabled,
+            github_timeout,
+            cfg["github_max_queries"],
+        ),
         sessions=SessionOptions(
-            frozenset() if args.no_sessions else
-            frozenset(name for name in SESSION_NAMES if sources.get(name, True)), limit),
+            frozenset() if args.no_sessions else frozenset(name for name in SESSION_NAMES if sources.get(name, True)),
+            limit,
+        ),
         output=OutputOptions(
-            Path(args.out).expanduser() if args.out else None, args.to_stdout, args.overwrite,
-            (not args.no_redact) and bool(cfg.get("redact", True)), keep,
-            Path(cfg["reports_dir"]).expanduser(), args.json_output),
-        dirty_configured=bool(cfg.get("dirty")), dirty_explicit=args.dirty,
+            Path(args.out).expanduser() if args.out else None,
+            args.to_stdout,
+            args.overwrite,
+            (not args.no_redact) and bool(cfg.get("redact", True)),
+            keep,
+            Path(cfg["reports_dir"]).expanduser(),
+            args.json_output,
+        ),
+        dirty_configured=bool(cfg.get("dirty")),
+        dirty_explicit=args.dirty,
         stale_days=int(cfg.get("stale_days", 7)),
-        period_word=m.R_PERIOD_WEEKLY if args.week or args.last_week else None)
+        period_word=m.R_PERIOD_WEEKLY if args.week or args.last_week else None,
+    )

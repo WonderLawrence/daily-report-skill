@@ -1,8 +1,11 @@
-"""Aggregation: clues for grouping work by topic, never a judgement of its value.
+"""Aggregation: clues for grouping work by topic, never a judgement of its
+value.
 
-Everything here is a hint (duplicate copies, revert pairing, file overlap, summary budget)
+Everything here is a hint (duplicate copies, revert pairing, file overlap,
+summary budget)
 that still has to be confirmed against the actual task.
 """
+
 from __future__ import annotations
 
 import re
@@ -20,12 +23,15 @@ COMMIT_RE = re.compile(r"^(?P<type>[A-Za-z]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<
 
 
 def _patch_groups(items: list[Commit]) -> list[list[Commit]]:
-    """Group same title, same files commits by patch id; keep them apart without one."""
+    """Group same title, same files commits by patch id; keep them apart without
+    one.
+    """
     if len(items) <= 1:
         return [items]
     groups: dict[str, list[Commit]] = {}
     for commit in items:
-        # Without a local patch id (unresolved SHA and the like), treat commits as distinct:
+        # Without a local patch id (unresolved SHA and the like), treat commits
+        # as distinct:
         # equal titles and paths are not evidence that two commits are copies.
         patch_id = git_patch_id(Path(commit.repo_path), commit.full_sha) if commit.repo_path else None
         groups.setdefault(patch_id or f"unique:{commit.full_sha}", []).append(commit)
@@ -46,7 +52,10 @@ def collapse_duplicates(commits: list[Commit]) -> tuple[list[Commit], int]:
             ordered = sorted(same_patch, key=lambda c: c.at)
             # Unknown change size sorts as 0 without rewriting its None meaning
             best = max(ordered, key=lambda c: (c.added or 0) + (c.deleted or 0))
-            reverted_by = next((c.reverted_by for c in ordered if c.reverted_by), best.reverted_by)
+            reverted_by = next(
+                (c.reverted_by for c in ordered if c.reverted_by),
+                best.reverted_by,
+            )
             keep = replace(best, copies=len(ordered) - 1, reverted_by=reverted_by)
             extras += keep.copies
             shown.append(keep)
@@ -54,39 +63,44 @@ def collapse_duplicates(commits: list[Commit]) -> tuple[list[Commit], int]:
     return shown, extras
 
 
-def scope_summary(commits: list[Commit]) -> list[tuple[str, int, list[tuple[str, int]]]]:
-    """Cluster by conventional commit scope to give topic grouping a starting point."""
+def scope_summary(
+    commits: list[Commit],
+) -> list[tuple[str, int, list[tuple[str, int]]]]:
+    """Cluster by conventional commit scope to give topic grouping a starting
+    point.
+    """
     per_scope: dict[str, Counter] = {}
     for commit in commits:
         m = COMMIT_RE.match(commit.subject)
-        typ = (m.group("type").lower() if m else "other")
+        typ = m.group("type").lower() if m else "other"
         scope = (m.group("scope") if m and m.group("scope") else "(无 scope)").strip()
         per_scope.setdefault(scope, Counter())[typ] += 1
-    rows = [(s, sum(cnt.values()), cnt.most_common(limits.TOPIC_TYPES))
-            for s, cnt in per_scope.items()]
+    rows = [(s, sum(cnt.values()), cnt.most_common(limits.TOPIC_TYPES)) for s, cnt in per_scope.items()]
     rows.sort(key=lambda r: -r[1])
-    return rows[:limits.TOPIC_SCOPES]
+    return rows[: limits.TOPIC_SCOPES]
 
 
-def _revert_candidates(commit: Commit, commits: list[Commit],
-                       by_subject: dict[tuple, list[Commit]]) -> list[Commit]:
+def _revert_candidates(commit: Commit, commits: list[Commit], by_subject: dict[tuple, list[Commit]]) -> list[Commit]:
     target = commit.revert_target
     if target:
-        found = [item for item in commits
-                 if item.repo == commit.repo and item.full_sha.startswith(target)
-                 and item.full_sha != commit.full_sha]
+        found = [
+            item
+            for item in commits
+            if item.repo == commit.repo and item.full_sha.startswith(target) and item.full_sha != commit.full_sha
+        ]
         return found if len(found) == 1 else []
     if not commit.subject.startswith('Revert "'):
         return []
-    inner = commit.subject[len('Revert "'):].rstrip('"').strip()
-    found = [item for item in by_subject.get((commit.repo, inner), [])
-             if item.full_sha != commit.full_sha]
+    inner = commit.subject[len('Revert "') :].rstrip('"').strip()
+    found = [item for item in by_subject.get((commit.repo, inner), []) if item.full_sha != commit.full_sha]
     # Without a target SHA, pair only when the title identifies one commit.
     return found if len(found) == 1 else []
 
 
 def pair_reverts(commits: list[Commit]) -> dict[str, str]:
-    """Pair by the target SHA in Git's revert body; older records fall back to a unique title."""
+    """Pair by the target SHA in Git's revert body; older records fall back to a
+    unique title.
+    """
     by_subject: dict[tuple, list[Commit]] = {}
     for commit in commits:
         by_subject.setdefault((commit.repo, commit.subject), []).append(commit)
@@ -106,7 +120,8 @@ def pair_reverts(commits: list[Commit]) -> dict[str, str]:
 
 
 def link_sessions(sessions: list[Session], commits: list[Commit]) -> None:
-    """Weak session to commit link: same repository plus a matching relative file path.
+    """Weak session to commit link: same repository plus a matching relative
+    file path.
 
     A hint, not causation; rendering labels it "possibly related".
     """
@@ -127,25 +142,31 @@ def link_sessions(sessions: list[Session], commits: list[Commit]) -> None:
                 if commit.full_sha not in seen:
                     seen.add(commit.full_sha)
                     hits.append(commit)
-        session.related = hits[:limits.RELATED_COMMITS]
+        session.related = hits[: limits.RELATED_COMMITS]
 
 
 def mark_near_duplicates(sessions: list[Session]) -> None:
-    """Flag identical substantive requests, never shared prefixes or runtime wrappers.
+    """Flag identical substantive requests, never shared prefixes or runtime
+    wrappers.
 
-    Use full events because `users` contains truncated summaries. Matching requests
+    Use full events because `users` contains truncated summaries. Matching
+    requests
     suggest a relation only; sessions are never merged or discarded here.
     """
     groups: dict[tuple, list[Session]] = {}
     for session in sessions:
         session.dup_n = 0
-        opening = next((" ".join(event.text.split()) for event in session.events
-                        if event.kind == EventKind.USER_REQUEST
-                        and substantive_text(event.text)), None)
+        opening = next(
+            (
+                " ".join(event.text.split())
+                for event in session.events
+                if event.kind == EventKind.USER_REQUEST and substantive_text(event.text)
+            ),
+            None,
+        )
         if opening is None:
             continue
-        groups.setdefault((session.agent, session.project, opening),
-                          []).append(session)
+        groups.setdefault((session.agent, session.project, opening), []).append(session)
     for group in groups.values():
         if len(group) > 1:
             for session in group:
@@ -153,7 +174,9 @@ def mark_near_duplicates(sessions: list[Session]) -> None:
 
 
 def select_session_details(sessions: list[Session], limit: int) -> None:
-    """Round-robin dates, then projects; tool count does not determine importance."""
+    """Round-robin dates, then projects; tool count does not determine
+    importance.
+    """
     dates: dict[date, dict[str, list[Session]]] = {}
     for session in sessions:
         session.detailed = False

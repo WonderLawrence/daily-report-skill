@@ -1,7 +1,9 @@
 """Collection window and timestamp parsing.
 
-Day boundaries follow the configured timezone; commits are attributed by committer date.
+Day boundaries follow the configured timezone; commits are attributed by
+committer date.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,7 +14,8 @@ from . import messages as m
 
 @dataclass(frozen=True)
 class Period:
-    """The half-open collection window [start, end) plus the timezone needed to read it.
+    """The half-open collection window [start, end) plus the timezone needed to
+    read it.
 
     Every source shares this one definition of "this period".
     """
@@ -61,10 +64,13 @@ def epoch_ms(ms, tz: timezone) -> datetime | None:
 
 
 def _day_start(day, tz: timezone) -> datetime:
-    """Midnight of `day`, rejecting arithmetic that leaves the representable range.
+    """Midnight of `day`, rejecting arithmetic that leaves the representable
+    range.
 
-    `--days 3000000` or `--date 9999-12-31` would otherwise raise OverflowError deep in the
-    date math, which reaches the user as a traceback instead of a usable message.
+    `--days 3000000` or `--date 9999-12-31` would otherwise raise OverflowError
+    deep in the
+    date math, which reaches the user as a traceback instead of a usable
+    message.
     """
     try:
         return datetime.combine(day, datetime.min.time(), tz)
@@ -79,12 +85,19 @@ def _shift(day, days: int):
         raise ValueError(m.TW_ERR_SHIFT_OVERFLOW.format(day=day, days=days)) from exc
 
 
-def resolve_period(date_arg: str | None, days: int, tz: timezone, week: str | None = None,
-                   today=None) -> Period:
+def resolve_period(
+    date_arg: str | None,
+    days: int,
+    tz: timezone,
+    week: str | None = None,
+    today=None,
+) -> Period:
     """Return a half-open date interval [start, end) in the configured timezone.
 
-    week: "this" = Monday of this week through today, "last" = Monday through Sunday of
-    last week; date_arg and days are ignored in that case. `today` is a test seam.
+    week: "this" = Monday of this week through today, "last" = Monday through
+    Sunday of
+    last week; date_arg and days are ignored in that case. `today` is a test
+    seam.
     """
     today = today or datetime.now(tz).date()
     if week:

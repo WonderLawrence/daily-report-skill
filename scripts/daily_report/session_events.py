@@ -1,9 +1,13 @@
 """Normalize session records from three agents into events.
 
-A user request states intent, an assistant statement is self-reported, and a tool result
-only means something together with its call and exit status: the three are stored apart and
-none stands in for another. One extractor per format; a new agent is one table entry.
+A user request states intent, an assistant statement is self-reported, and a
+tool result
+only means something together with its call and exit status: the three are
+stored apart and
+none stands in for another. One extractor per format; a new agent is one table
+entry.
 """
+
 from __future__ import annotations
 
 import json
@@ -16,7 +20,9 @@ from .timewindow import epoch_ms, parse_ts
 
 
 class _Collector:
-    """Collect the events of one record, validating the tool name and call id shape."""
+    """Collect the events of one record, validating the tool name and call id
+    shape.
+    """
 
     def __init__(self) -> None:
         self.events: list[Event] = []
@@ -38,7 +44,8 @@ def _dict(value) -> dict:
 
 
 def _claude_events(row: dict, out: _Collector) -> None:
-    # api-request-blob stores copies of messages sent to the API, without event times.
+    # api-request-blob stores copies of messages sent to the API, without event
+    # times.
     # Only actual conversation records can supply text or tool evidence.
     if row.get("type") not in ("user", "assistant"):
         return
@@ -53,19 +60,30 @@ def _claude_events(row: dict, out: _Collector) -> None:
         if not isinstance(block, dict):
             continue
         if block.get("type") == "tool_use":
-            out.add(EventKind.TOOL_CALL, {"name": block.get("name"),
-                                           "input": block.get("input")}, block.get("id"))
+            out.add(
+                EventKind.TOOL_CALL,
+                {"name": block.get("name"), "input": block.get("input")},
+                block.get("id"),
+            )
         elif block.get("type") == "tool_result":
-            out.add(EventKind.TOOL_RESULT, {"content": block.get("content"),
-                                             "is_error": block.get("is_error")},
-                    block.get("tool_use_id"))
+            out.add(
+                EventKind.TOOL_RESULT,
+                {
+                    "content": block.get("content"),
+                    "is_error": block.get("is_error"),
+                },
+                block.get("tool_use_id"),
+            )
 
 
 def _codex_message(role: str, content, out: _Collector) -> None:
-    """Normalize Codex's input/output text blocks without treating media as missing text.
+    """Normalize Codex's input/output text blocks without treating media as
+    missing text.
 
-    Unknown or malformed blocks mark a partial message, while readable siblings survive.
-    System/developer messages are handled by the caller and never become user requests.
+    Unknown or malformed blocks mark a partial message, while readable siblings
+    survive.
+    System/developer messages are handled by the caller and never become user
+    requests.
     """
     if isinstance(content, str):
         content = [{"type": "text", "text": content}]
@@ -83,7 +101,14 @@ def _codex_message(role: str, content, out: _Collector) -> None:
                 blocks.append({"type": "text", "text": block["text"]})
             else:
                 out.unparsed_message = True
-        elif kind not in ("image", "image_url", "input_image", "audio", "input_audio", "output_audio"):
+        elif kind not in (
+            "image",
+            "image_url",
+            "input_image",
+            "audio",
+            "input_audio",
+            "output_audio",
+        ):
             out.unparsed_message = True
     if role == "user":
         text = user_text(blocks)
@@ -103,12 +128,20 @@ def _codex_events(row: dict, out: _Collector) -> None:
         if kind == "message" and payload.get("role") in ("user", "assistant"):
             _codex_message(payload["role"], payload.get("content"), out)
         elif kind in ("function_call", "custom_tool_call"):
-            out.add(EventKind.TOOL_CALL,
-                    {"name": payload.get("name"),
-                     "input": payload.get("arguments", payload.get("input"))},
-                    payload.get("call_id"))
+            out.add(
+                EventKind.TOOL_CALL,
+                {
+                    "name": payload.get("name"),
+                    "input": payload.get("arguments", payload.get("input")),
+                },
+                payload.get("call_id"),
+            )
         elif kind in ("function_call_output", "custom_tool_call_output"):
-            out.add(EventKind.TOOL_RESULT, payload.get("output", ""), payload.get("call_id"))
+            out.add(
+                EventKind.TOOL_RESULT,
+                payload.get("output", ""),
+                payload.get("call_id"),
+            )
 
 
 def _dsh_events(row: dict, out: _Collector) -> None:
@@ -119,28 +152,36 @@ def _dsh_events(row: dict, out: _Collector) -> None:
         if not is_injected(txt):
             out.add(EventKind.USER_REQUEST, txt)
     elif kind == "assistant/message":
-        out.add(EventKind.ASSISTANT_STATEMENT,
-                blocks_text(_dict(data.get("message")).get("content")))
+        out.add(
+            EventKind.ASSISTANT_STATEMENT,
+            blocks_text(_dict(data.get("message")).get("content")),
+        )
     elif kind == "tool/call":
-        out.add(EventKind.TOOL_CALL,
-                {"name": data.get("name"), "input": data.get("arguments")},
-                data.get("call_id", data.get("id")))
+        out.add(
+            EventKind.TOOL_CALL,
+            {"name": data.get("name"), "input": data.get("arguments")},
+            data.get("call_id", data.get("id")),
+        )
     elif kind == "tool/result":
         out.add(EventKind.TOOL_RESULT, data, data.get("call_id", data.get("id")))
 
 
-EXTRACTORS = {"claude-code": _claude_events, "codex": _codex_events, "dsh": _dsh_events}
+EXTRACTORS = {
+    "claude-code": _claude_events,
+    "codex": _codex_events,
+    "dsh": _dsh_events,
+}
 
 
-def record_events(row: dict, agent: str,
-                  diagnostics: SessionDiagnostics | None = None) -> list[Event]:
-    """Keep claims and tool results separate; neither proves a report-level outcome."""
+def record_events(row: dict, agent: str, diagnostics: SessionDiagnostics | None = None) -> list[Event]:
+    """Keep claims and tool results separate; neither proves a report-level
+    outcome.
+    """
     out = _Collector()
     EXTRACTORS.get(agent, _dsh_events)(row, out)
     if diagnostics is not None:
         diagnostics.user_messages += sum(e.kind == EventKind.USER_REQUEST for e in out.events)
-        diagnostics.assistant_messages += sum(e.kind == EventKind.ASSISTANT_STATEMENT
-                                              for e in out.events)
+        diagnostics.assistant_messages += sum(e.kind == EventKind.ASSISTANT_STATEMENT for e in out.events)
         diagnostics.unparsed_messages += int(out.unparsed_message)
     return out.events
 
@@ -152,7 +193,9 @@ def record_timestamp(row: dict, agent: str, tz: timezone) -> datetime | None:
 
 
 def record_cwd(row: dict, agent: str) -> str | None:
-    """Codex puts cwd in the session_meta payload; the other formats put it on the record."""
+    """Codex puts cwd in the session_meta payload; the other formats put it on
+    the record.
+    """
     if agent == "codex" and row.get("type") == "session_meta":
         return _dict(row.get("payload")).get("cwd")
     return row.get("cwd")

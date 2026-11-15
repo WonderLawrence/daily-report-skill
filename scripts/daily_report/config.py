@@ -1,7 +1,9 @@
 """Configuration defaults, loading and validation.
 
-Path resolution happens when called, never by reading the environment at import time.
+Path resolution happens when called, never by reading the environment at import
+time.
 """
+
 from __future__ import annotations
 
 import copy
@@ -15,32 +17,44 @@ from . import messages as m
 SKILL_DIR = Path(__file__).resolve().parents[2]
 
 DEFAULTS = {
-    "author_emails": [],          # Empty = fall back to git config user.email; list every identity
+    # Empty = fall back to git config user.email; list every identity
+    "author_emails": [],
     "repos_root": "~/Project",
-    "only_repos": [],             # When set, replaces repository discovery and filters sessions
+    # When set, replaces repository discovery and filters sessions
+    "only_repos": [],
     "reports_dir": "~/Documents/reports",
     "utc_offset_hours": 8,
-    "max_sessions": 30,           # Detailed summary budget; index and JSON are never truncated
+    # Detailed summary budget; index and JSON are never truncated
+    "max_sessions": 30,
     "stale_days": 7,
-    "fetch": True,                # Update remote tracking refs before reading commits
+    "fetch": True,  # Update remote tracking refs before reading commits
     "fetch_timeout_seconds": 30,
     "github_prs": True,
     "github_timeout_seconds": 30,
     "github_max_queries": 200,
-    "redact": True,               # Redact tokens, private keys and internal IPs before writing
-    "evidence_keep": 30,          # Keep the N newest latest views; never prunes history snapshots
+    # Redact tokens, private keys and internal IPs before writing
+    "redact": True,
+    # Keep the N newest latest views; never prunes history snapshots
+    "evidence_keep": 30,
     "sources": {"git": True, "claude": True, "codex": True, "dsh": True},
 }
 
 # Key -> minimum value; only checked when the key is present
-INTEGER_RANGES = {"max_sessions": 1, "evidence_keep": 0, "stale_days": 0,
-                  "fetch_timeout_seconds": 1, "github_timeout_seconds": 1,
-                  "github_max_queries": 1}
+INTEGER_RANGES = {
+    "max_sessions": 1,
+    "evidence_keep": 0,
+    "stale_days": 0,
+    "fetch_timeout_seconds": 1,
+    "github_timeout_seconds": 1,
+    "github_max_queries": 1,
+}
 BOOLEAN_KEYS = ("dirty", "redact", "fetch", "github_prs")
 
 
 def default_config_path() -> Path:
-    """Resolve DAILY_REPORT_CONFIG, then the user config, then a workspace config."""
+    """Resolve DAILY_REPORT_CONFIG, then the user config, then a workspace
+    config.
+    """
     override = os.environ.get("DAILY_REPORT_CONFIG")
     if override:
         return Path(override).expanduser()
@@ -48,7 +62,8 @@ def default_config_path() -> Path:
     workspace = SKILL_DIR.parent / "reports" / "daily-report.config.json"
     if standard.exists() or not workspace.exists():
         return standard
-    # Support workspace-local setups that keep the report config beside the reports directory.
+    # Support workspace-local setups that keep the report config beside the
+    # reports directory.
     return workspace
 
 
@@ -70,8 +85,7 @@ def load_config(path: Path) -> dict:
 
 
 def _is_path_list(value) -> bool:
-    return (isinstance(value, list)
-            and all(isinstance(item, str) and item.strip() for item in value))
+    return isinstance(value, list) and all(isinstance(item, str) and item.strip() for item in value)
 
 
 def _is_number(value) -> bool:

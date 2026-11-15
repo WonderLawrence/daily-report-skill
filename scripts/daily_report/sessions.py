@@ -1,9 +1,12 @@
 """Scan and parse Claude Code / Codex / DSH session files.
 
-Candidates are prefiltered by directory and mtime, and only events inside the window are
-kept; one damaged file never stops the other sources. A new agent is one more entry in
+Candidates are prefiltered by directory and mtime, and only events inside the
+window are
+kept; one damaged file never stops the other sources. A new agent is one more
+entry in
 SESSION_SOURCES.
 """
+
 from __future__ import annotations
 
 import json
@@ -18,7 +21,11 @@ from typing import Callable
 
 from . import limits
 from . import messages as m
-from .analysis import link_sessions, mark_near_duplicates, select_session_details
+from .analysis import (
+    link_sessions,
+    mark_near_duplicates,
+    select_session_details,
+)
 from .diagnostics import IssueKind, SessionDiagnostics, SourceDiagnostics
 from .models import Commit, Event, EventKind, Session
 from .session_events import record_cwd, record_events, record_timestamp
@@ -41,7 +48,9 @@ _PROJECT_MAP: dict[str, str] | None = None
 
 
 def claude_project_map() -> dict[str, str]:
-    """Slug directory -> real cwd (subagent files in the same directory often lack cwd)."""
+    """Slug directory -> real cwd (subagent files in the same directory often
+    lack cwd).
+    """
     global _PROJECT_MAP
     if _PROJECT_MAP is not None:
         return _PROJECT_MAP
@@ -55,7 +64,7 @@ def claude_project_map() -> dict[str, str]:
                 for line in fh:
                     try:
                         d = json.loads(line)
-                    except Exception:
+                    except (ValueError, RecursionError):
                         continue
                     if isinstance(d, dict) and isinstance(d.get("cwd"), str):
                         _PROJECT_MAP[f.parent.name] = d["cwd"]
@@ -85,15 +94,17 @@ def _dsh_project(path: Path) -> str:
 
 @dataclass(frozen=True)
 class AgentSource:
-    """One session source: diagnostics name, record format, directory under HOME, pattern."""
+    """One session source: diagnostics name, record format, directory under
+    HOME, pattern.
+    """
 
-    name: str                        # Source name used in diagnostics: claude / codex / dsh
-    agent: str                       # Record format: claude-code / codex / dsh
-    parts: tuple[str, ...]           # Directory under HOME, resolved late because tests swap HOME
+    name: str  # Source name used in diagnostics: claude / codex / dsh
+    agent: str  # Record format: claude-code / codex / dsh
+    parts: tuple[str, ...]  # Directory under HOME, resolved late because tests swap HOME
     pattern: str
     project_fallback: Callable[[Path], str]
-    requires: str | None = None      # External command this source needs
-    id_from_parent: bool = False     # A DSH session may span several files in one directory
+    requires: str | None = None  # External command this source needs
+    id_from_parent: bool = False  # A DSH session may span several files in one directory
 
     @property
     def location(self) -> str:
@@ -110,16 +121,37 @@ class AgentSource:
 
 
 SESSION_SOURCES = (
-    AgentSource("claude", "claude-code", (".claude", "projects"), "*/*.jsonl", _claude_project),
-    AgentSource("codex", "codex", (".codex", "sessions"), "*/*/*/*.jsonl", _codex_project),
-    AgentSource("dsh", "dsh", (".dsh", "sessions"), "*/session-*/*.jsonl.zstd", _dsh_project,
-                requires="zstd", id_from_parent=True),
+    AgentSource(
+        "claude",
+        "claude-code",
+        (".claude", "projects"),
+        "*/*.jsonl",
+        _claude_project,
+    ),
+    AgentSource(
+        "codex",
+        "codex",
+        (".codex", "sessions"),
+        "*/*/*/*.jsonl",
+        _codex_project,
+    ),
+    AgentSource(
+        "dsh",
+        "dsh",
+        (".dsh", "sessions"),
+        "*/session-*/*.jsonl.zstd",
+        _dsh_project,
+        requires="zstd",
+        id_from_parent=True,
+    ),
 )
 
 
 # ---------------- Parsing one file ----------------
 def _scan_candidate(path: Path, period: Period, diag: SessionDiagnostics) -> bool:
-    """Prefilter by mtime; copied files with unreliable mtimes may need manual review."""
+    """Prefilter by mtime; copied files with unreliable mtimes may need manual
+    review.
+    """
     mtime = _mtime(path)
     diag.discovered += 1
     if mtime is None:
@@ -136,17 +168,27 @@ def _scan_candidate(path: Path, period: Period, diag: SessionDiagnostics) -> boo
 
 
 def session_records(path: Path, counters: SessionDiagnostics):
-    """Yield original line numbers; one damaged file must not stop other sources."""
+    """Yield original line numbers; one damaged file must not stop other
+    sources.
+    """
     proc = None
     try:
         if path.suffix == ".zstd":
-            # Stream so a large DSH log doesn't load whole into memory before we see the first line
-            # stderr goes to the void on purpose: nothing reads it, and an undrained pipe
-            # deadlocks once a corrupt archive fills the buffer. The exit code is the signal.
-            proc = subprocess.Popen(["zstd", "-dc", str(path)],
-                                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                    stdin=subprocess.DEVNULL, text=True,
-                                    encoding="utf-8", errors="replace")
+            # Stream so a large DSH log doesn't load whole into memory before we
+            # see the first line
+            # stderr goes to the void on purpose: nothing reads it, and an
+            # undrained pipe
+            # deadlocks once a corrupt archive fills the buffer. The exit code
+            # is the signal.
+            proc = subprocess.Popen(
+                ["zstd", "-dc", str(path)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
             stream = proc.stdout
         else:
             stream = path.open(encoding="utf-8", errors="replace")
@@ -179,7 +221,9 @@ def session_records(path: Path, counters: SessionDiagnostics):
 
 
 def _tool_paths(args) -> list[str]:
-    """File paths in a tool call's `input` value; also tolerates a JSON-string input."""
+    """File paths in a tool call's `input` value; also tolerates a JSON-string
+    input.
+    """
     if isinstance(args, str):
         try:
             args = json.loads(args)
@@ -192,7 +236,9 @@ def _tool_paths(args) -> list[str]:
 
 @dataclass
 class _Draft:
-    """Accumulate a session summary event by event; summaries are lossy, events are not."""
+    """Accumulate a session summary event by event; summaries are lossy, events
+    are not.
+    """
 
     events: list[Event] = field(default_factory=list)
     users: list[str] = field(default_factory=list)
@@ -213,16 +259,24 @@ class _Draft:
         elif event.kind == EventKind.ASSISTANT_STATEMENT:
             self.concl.append(one_line(event.text, limits.ASSISTANT_STATEMENT))
         elif event.kind == EventKind.TOOL_CALL:
-            # Parse once: the tool_call payload is {"name": ..., "input": ...}, serialized by
-            # session_events._Collector. Re-parsing it twice (name + paths) was the one open
+            # Parse once: the tool_call payload is {"name": ..., "input": ...},
+            # serialized by
+            # session_events._Collector. Re-parsing it twice (name + paths) was
+            # the one open
             # hot-path waste on this side.
             payload = json.loads(event.text)
             self.tools[payload.get("name") or "?"] += 1
             self.files.update(_tool_paths(payload.get("input")))
 
 
-def parse_session_file(path: Path, agent: str, period: Period, diag: SessionDiagnostics,
-                       fallback: str, session_id: str | None = None) -> Session | None:
+def parse_session_file(
+    path: Path,
+    agent: str,
+    period: Period,
+    diag: SessionDiagnostics,
+    fallback: str,
+    session_id: str | None = None,
+) -> Session | None:
     local = SessionDiagnostics()
     draft = _Draft()
     cwd = None
@@ -237,9 +291,19 @@ def parse_session_file(path: Path, agent: str, period: Period, diag: SessionDiag
                 local.unparsed_messages += probe.unparsed_messages
                 if extracted or probe.unparsed_messages:
                     local.invalid_records += 1
-                    local.note_issue(str(path), line_no, IssueKind.MISSING_TIMESTAMP, record_type)
+                    local.note_issue(
+                        str(path),
+                        line_no,
+                        IssueKind.MISSING_TIMESTAMP,
+                        record_type,
+                    )
                 if probe.unparsed_messages:
-                    local.note_issue(str(path), line_no, IssueKind.UNPARSED_MESSAGE, record_type)
+                    local.note_issue(
+                        str(path),
+                        line_no,
+                        IssueKind.UNPARSED_MESSAGE,
+                        record_type,
+                    )
             except (TypeError, AttributeError, ValueError):
                 local.invalid_records += 1
                 local.note_issue(str(path), line_no, IssueKind.INVALID_EVENT, record_type)
@@ -273,16 +337,22 @@ def parse_session_file(path: Path, agent: str, period: Period, diag: SessionDiag
     if not draft.events:
         return None
     return Session(
-        agent=agent, project=cwd if isinstance(cwd, str) and cwd else fallback,
+        agent=agent,
+        project=cwd if isinstance(cwd, str) and cwd else fallback,
         id=session_id if session_id is not None else path.stem,
-        start=draft.first, end=draft.last, users=draft.users,
-        concl=draft.concl[-limits.CONCL_TAIL:],
-        tools=draft.tools, files=draft.files, steps=sum(draft.tools.values()),
-        events=draft.events, source=str(path))
+        start=draft.first,
+        end=draft.last,
+        users=draft.users,
+        concl=draft.concl[-limits.CONCL_TAIL :],
+        tools=draft.tools,
+        files=draft.files,
+        steps=sum(draft.tools.values()),
+        events=draft.events,
+        source=str(path),
+    )
 
 
-def scan_sessions(source: AgentSource, period: Period,
-                  diag: SessionDiagnostics | None = None) -> list[Session]:
+def scan_sessions(source: AgentSource, period: Period, diag: SessionDiagnostics | None = None) -> list[Session]:
     diag = diag if diag is not None else SessionDiagnostics()
     base = source.base()
     if not base.is_dir():
@@ -290,15 +360,23 @@ def scan_sessions(source: AgentSource, period: Period,
         return []
     if source.requires and not shutil.which(source.requires):
         diag.unavailable = True
-        print(m.LOG_SESSION_SOURCE_MISSING.format(
-            tool=source.requires, source=source.name.upper()), file=sys.stderr)
+        print(
+            m.LOG_SESSION_SOURCE_MISSING.format(tool=source.requires, source=source.name.upper()),
+            file=sys.stderr,
+        )
         return []
     found = []
     for path in sorted(base.glob(source.pattern)):
         if not _scan_candidate(path, period, diag):
             continue
-        session = parse_session_file(path, source.agent, period, diag,
-                                     source.project_fallback(path), source.session_id(path))
+        session = parse_session_file(
+            path,
+            source.agent,
+            period,
+            diag,
+            source.project_fallback(path),
+            source.session_id(path),
+        )
         if session:
             found.append(session)
     return found
@@ -308,23 +386,36 @@ def scan_sessions(source: AgentSource, period: Period,
 def warn_format_drift(name: str, location: str, diag: SessionDiagnostics, found: int) -> None:
     """A changed session format silently yields zero sessions.
 
-    Detect it as "files touched but no events" or "events parsed but nothing extracted".
+    Detect it as "files touched but no events" or "events parsed but nothing
+    extracted".
     """
     if diag.unparsed_messages:
         hint = m.LOG_SESSION_CODEX_HINT if name == "codex" else ""
-        print(m.LOG_SESSION_UNPARSED.format(
-            name=name, count=diag.unparsed_messages, location=location, hint=hint),
-              file=sys.stderr)
+        print(
+            m.LOG_SESSION_UNPARSED.format(
+                name=name,
+                count=diag.unparsed_messages,
+                location=location,
+                hint=hint,
+            ),
+            file=sys.stderr,
+        )
     if diag.files and not diag.events:
-        print(m.LOG_SESSION_NO_EVENTS.format(name=name, count=diag.files, location=location),
-              file=sys.stderr)
+        print(
+            m.LOG_SESSION_NO_EVENTS.format(name=name, count=diag.files, location=location),
+            file=sys.stderr,
+        )
     elif diag.events and not found:
-        print(m.LOG_SESSION_NO_EXTRACT.format(name=name, count=diag.events, location=location),
-              file=sys.stderr)
+        print(
+            m.LOG_SESSION_NO_EXTRACT.format(name=name, count=diag.events, location=location),
+            file=sys.stderr,
+        )
 
 
 def project_in_scope(project: str, roots: list[Path]) -> bool | None:
-    """None means the parser did not recover an absolute cwd; never match by basename."""
+    """None means the parser did not recover an absolute cwd; never match by
+    basename.
+    """
     path = Path(project).expanduser()
     if not path.is_absolute():
         return None
@@ -333,7 +424,9 @@ def project_in_scope(project: str, roots: list[Path]) -> bool | None:
 
 
 def _merge_fragments(sessions: list[Session]) -> list[Session]:
-    """A DSH session may be split across files. Keep all fragments and their locators."""
+    """A DSH session may be split across files. Keep all fragments and their
+    locators.
+    """
     by_id: dict[tuple, Session] = {}
     for session in sessions:
         key = (session.agent, session.id)
@@ -343,23 +436,35 @@ def _merge_fragments(sessions: list[Session]) -> list[Session]:
             continue
         kept.start = min(kept.start, session.start)
         kept.end = max(kept.end, session.end)
-        kept.events = sorted(kept.events + session.events,
-                             key=lambda event: (event.at, event.source, event.line))
-        kept.users = [one_line(event.text, limits.USER_REQUEST) for event in kept.events
-                      if event.kind == EventKind.USER_REQUEST]
-        kept.concl = [one_line(event.text, limits.ASSISTANT_STATEMENT)
-                      for event in kept.events
-                      if event.kind == EventKind.ASSISTANT_STATEMENT][-limits.CONCL_TAIL:]
+        kept.events = sorted(
+            kept.events + session.events,
+            key=lambda event: (event.at, event.source, event.line),
+        )
+        kept.users = [
+            one_line(event.text, limits.USER_REQUEST) for event in kept.events if event.kind == EventKind.USER_REQUEST
+        ]
+        kept.concl = [
+            one_line(event.text, limits.ASSISTANT_STATEMENT)
+            for event in kept.events
+            if event.kind == EventKind.ASSISTANT_STATEMENT
+        ][-limits.CONCL_TAIL :]
         kept.tools.update(session.tools)
         kept.files.update(session.files)
         kept.steps += session.steps
     return sorted(by_id.values(), key=lambda session: (session.start, session.id))
 
 
-def collect_sessions(period: Period, enabled: set[str], commits: list[Commit], limit: int,
-                     diagnostics: dict[str, SourceDiagnostics] | None = None,
-                     project_roots: list[Path] | None = None) -> tuple[list[Session], bool]:
-    """Collect sessions per source; out of scope or unidentifiable ones only feed diagnostics."""
+def collect_sessions(
+    period: Period,
+    enabled: set[str],
+    commits: list[Commit],
+    limit: int,
+    diagnostics: dict[str, SourceDiagnostics] | None = None,
+    project_roots: list[Path] | None = None,
+) -> tuple[list[Session], bool]:
+    """Collect sessions per source; out of scope or unidentifiable ones only
+    feed diagnostics.
+    """
     diagnostics = diagnostics if diagnostics is not None else {}
     sessions: list[Session] = []
     for source in SESSION_SOURCES:
@@ -371,11 +476,12 @@ def collect_sessions(period: Period, enabled: set[str], commits: list[Commit], l
         found = source.collect(period, diag)
         warn_format_drift(source.name, source.location, diag, len(found))
         if diag.failed_files:
-            print(m.LOG_SESSION_PARTIAL.format(name=source.name, count=diag.failed_files),
-                  file=sys.stderr)
+            print(
+                m.LOG_SESSION_PARTIAL.format(name=source.name, count=diag.failed_files),
+                file=sys.stderr,
+            )
         for session in found:
-            included = (project_in_scope(session.project, project_roots)
-                        if project_roots is not None else True)
+            included = project_in_scope(session.project, project_roots) if project_roots is not None else True
             if included:
                 sessions.append(session)
             elif included is None:

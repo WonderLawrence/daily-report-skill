@@ -220,5 +220,15 @@ Python 3.11+，只使用标准库；提交证据需要已登录的 `gh`（PR 搜
 
 ## 验证
 
+Python lint 使用 Google Pylint 配置，项目将行长度上限调整为 **128 字符**，其余规则不变；Ruff 格式化使用同一宽度。配置分别保存在 `.pylintrc` 和 `ruff.toml`，在项目根目录运行：
+
+```bash
+pylint --rcfile=.pylintrc --jobs=1 scripts/*.py scripts/daily_report
+ruff format --check scripts
+ruff check scripts
+```
+
+当前验证版本为 Pylint 4.1.4、Ruff 0.11.10；使用 `ruff format scripts` 应用格式化。
+
 运行 `python3 -m unittest discover -s tests -v` 检查采集、事件定位、覆盖诊断和快照行为。
 写稿规则的行为验收见 [tests/REPORT_ACCEPTANCE.md](tests/REPORT_ACCEPTANCE.md)；这部分需要实际生成报告并按样例判据审阅，不能用单元测试通过代替。
