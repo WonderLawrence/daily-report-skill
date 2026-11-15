@@ -255,3 +255,8 @@ ruff check scripts
 
 运行 `python3 -m unittest discover -s tests -v` 检查采集、事件定位、覆盖诊断和快照行为。
 写稿规则的行为验收见 [tests/REPORT_ACCEPTANCE.md](tests/REPORT_ACCEPTANCE.md)；这部分需要实际生成报告并按样例判据审阅，不能用单元测试通过代替。
+
+## 许可证
+
+MIT，见 [LICENSE](LICENSE)。包名 `daily-report-skill`，当前版本 0.1.1；对外的插件清单声明在 `package.json` 的 `dsh.bundle`，
+社区索引里的每个版本都钉在仓库的具体提交上。
