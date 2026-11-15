@@ -66,12 +66,12 @@
       },
       "versions": [
         {
-          "version": "0.1.0",
-          "publishTimestamp": 1794756659,
+          "version": "0.1.1",
+          "publishTimestamp": 1794757078,
           "source": {
             "type": "git",
             "url": "https://github.com/WonderLawrence/daily-report-skill",
-            "commit": "d1e34b34df61e6da9b6a3ff9a94c70ac7ac9969a"
+            "commit": "f69a139f565d2e1050197f7af38d6e370d81751e"
           },
           "engines": {
             "dsh": ">=0.2.0-0 <0.3.0"
