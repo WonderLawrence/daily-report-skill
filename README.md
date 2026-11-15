@@ -55,22 +55,17 @@ daily-report/
 ## 作为 DSH 插件安装
 
 仓库本身是一个 DSH bundle（`package.json` 的 `dsh.bundle` + `cordis.patch.yml` + `lib/index.js`），
-可以在 DSH 的 **Plugins → Discover** 里安装，不必手动复制目录：
+可以在 DSH 的 **Plugins** 页面直接安装，不必手动复制目录：
 
-1. 在 Plugins 页面打开 **Custom plugin indexes**（实验特性）。
-2. **Discover → Index sources** 添加索引地址：
+- 在 Plugins 的安装对话框里填 `git+https://github.com/WonderLawrence/daily-report-skill.git#<完整 commit>`；
+- 已提交 [dshopen.org](https://dshopen.org/) 与 [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
+  的收录审核，通过后在 **Discover** 里搜索 `daily-report` 即可安装。
 
-   ```
-   https://raw.githubusercontent.com/WonderLawrence/daily-report-skill/main/market/index.json
-   ```
+安装后插件在 profile 里启停，`daily-report` skill 随即出现在 skill 目录中；
+同名的本地副本（项目 `.agents/skills`、`~/.agents/skills`）优先级更高，仍然生效。
 
-3. 打开 **Daily Report** 条目并安装。装好后插件在 profile 里启停，`daily-report` skill 随即出现在 skill 目录中；
-   同名的本地副本（项目 `.agents/skills`、`~/.agents/skills`）优先级更高，仍然生效。
-
-索引文件是 `market/index.json`（plugin market index format 1），每个版本用 Git commit 钉住，
-内容变更后需要把新 commit 更新进索引。插件入口 `lib/index.js` 注册同名 skill provider，
-`resourceBase` 指向包根目录，所以 `references/`、`examples/`、`scripts/` 的相对路径与手动安装一致。
-配置、采集和写稿方式不变，见下文。
+插件入口 `lib/index.js` 注册同名 skill provider，`resourceBase` 指向包根目录，
+所以 `references/`、`examples/`、`scripts/` 的相对路径与手动安装一致。配置、采集和写稿方式不变，见下文。
 
 ## 安装
 
