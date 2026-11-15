@@ -1,0 +1,6 @@
+# The daily-report bundle adds one row: a skill provider that registers the
+# packaged `daily-report` skill. It is a plain profile plugin with no services of
+# its own, so the row needs no `disabled` guard.
+- insert:
+    - id: skill-daily-report
+      name: daily-report-skill
