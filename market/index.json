@@ -1,0 +1,83 @@
+{
+  "format": 1,
+  "title": {
+    "en": "WonderLawrence DSH plugins",
+    "zh": "WonderLawrence 插件索引"
+  },
+  "description": {
+    "en": "Bundles published by WonderLawrence for DeepSeek Harness.",
+    "zh": "WonderLawrence 发布的 DeepSeek Harness 插件索引。"
+  },
+  "metadata": {
+    "categories": {
+      "productivity": {
+        "title": {
+          "en": "Productivity",
+          "zh": "效率工具"
+        }
+      }
+    },
+    "labels": {
+      "chinese": {
+        "title": {
+          "en": "Chinese output",
+          "zh": "中文产出"
+        }
+      },
+      "reporting": {
+        "title": {
+          "en": "Reporting",
+          "zh": "工作汇报"
+        }
+      }
+    }
+  },
+  "plugins": [
+    {
+      "name": "daily-report-skill",
+      "title": {
+        "en": "Daily Report",
+        "zh": "日报 / 周报"
+      },
+      "description": {
+        "en": "Write Chinese daily and weekly reports from the PRs you took part in, your own commits, and your coding-agent sessions.",
+        "zh": "根据本期参与的 PR、本人提交和编码 agent 会话，产出有据可查的中文日报与周报。"
+      },
+      "icon": "./icon.svg",
+      "author": "WonderLawrence",
+      "homepage": "https://github.com/WonderLawrence/daily-report-skill",
+      "repository": {
+        "url": "https://github.com/WonderLawrence/daily-report-skill"
+      },
+      "metadata": {
+        "category": "productivity",
+        "keywords": [
+          "daily report",
+          "weekly report",
+          "standup",
+          "日报",
+          "周报",
+          "工作汇报"
+        ],
+        "labels": [
+          "chinese",
+          "reporting"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.1.0",
+          "publishTimestamp": 1794756659,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/WonderLawrence/daily-report-skill",
+            "commit": "d1e34b34df61e6da9b6a3ff9a94c70ac7ac9969a"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-0 <0.3.0"
+          }
+        }
+      ]
+    }
+  ]
+}
