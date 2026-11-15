@@ -7,6 +7,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+from . import messages as m
+
 
 @dataclass(frozen=True)
 class Period:
@@ -67,14 +69,14 @@ def _day_start(day, tz: timezone) -> datetime:
     try:
         return datetime.combine(day, datetime.min.time(), tz)
     except (OverflowError, ValueError) as exc:
-        raise ValueError(f"日期超出可表示范围（{day}）：请改用更近的 --date") from exc
+        raise ValueError(m.TW_ERR_DAY_OVERFLOW.format(day=day)) from exc
 
 
 def _shift(day, days: int):
     try:
         return day + timedelta(days=days)
     except (OverflowError, ValueError) as exc:
-        raise ValueError(f"日期超出可表示范围（{day} {days:+} 天）：请改用更近的 --date") from exc
+        raise ValueError(m.TW_ERR_SHIFT_OVERFLOW.format(day=day, days=days)) from exc
 
 
 def resolve_period(date_arg: str | None, days: int, tz: timezone, week: str | None = None,
@@ -101,13 +103,12 @@ def resolve_period(date_arg: str | None, days: int, tz: timezone, week: str | No
                 raise ValueError
             end_day = parsed.date()
         except ValueError as e:
-            raise ValueError(
-                f"--date 需要 YYYY-MM-DD 格式（或 today / yesterday），收到 {date_arg!r}") from e
+            raise ValueError(m.TW_ERR_DATE_FORMAT.format(value=date_arg)) from e
     else:
         end_day = today
     end = _day_start(_shift(end_day, 1), tz)
     try:
         start = end - timedelta(days=days)
     except (OverflowError, ValueError) as exc:
-        raise ValueError(f"日期区间超出可表示范围（{days} 天）：请缩小 --days") from exc
+        raise ValueError(m.TW_ERR_DAYS_OVERFLOW.format(days=days)) from exc
     return Period(start, end, tz)

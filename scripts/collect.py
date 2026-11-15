@@ -8,17 +8,20 @@ the local Claude Code / Codex / DSH records.
 
 Usage is documented in README.md and the meaning of the evidence in
 references/collection.md; the rest of the implementation lives in the daily_report package.
-Text printed for the user stays in Chinese: it is the product.
+Evidence and diagnostics are in Chinese; CLI help is in English.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 
+from daily_report import messages as m
 from daily_report.config import default_config_path
-from daily_report.evidence import json_evidence, prune_evidence, redact_text, write_evidence
+from daily_report.evidence import (EvidenceWriteError, json_evidence, prune_evidence,
+                                   redact_text, write_evidence)
 from daily_report.gitlog import print_identity_report
-from daily_report.models import Report
+from daily_report.models import ArtifactKind, Report
 from daily_report.pipeline import run_collection
 from daily_report.render import render
 from daily_report.settings import MissingGit, resolve_settings
@@ -26,38 +29,35 @@ from daily_report.settings import MissingGit, resolve_settings
 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--date", help="区间结束日 YYYY-MM-DD，也可写 today / yesterday；默认今天")
-    ap.add_argument("--days", type=int, default=None,
-                    help="包含结束日在内向前取几天（默认 1；最近 7 天用 7）")
+    ap.add_argument("--date", help=m.CLI_HELP_DATE)
+    ap.add_argument("--days", type=int, default=None, help=m.CLI_HELP_DAYS)
     week = ap.add_mutually_exclusive_group()
-    week.add_argument("--week", action="store_true", help="本周：本周一至今天（不能和 --date/--days 同用）")
-    week.add_argument("--last-week", action="store_true",
-                      help="上周：上周一至上周日（不能和 --date/--days 同用）")
-    ap.add_argument("--config", default=str(default_config_path()),
-                    help="配置文件（默认 DAILY_REPORT_CONFIG、用户配置或工作区配置）")
-    ap.add_argument("--repos-root", help="覆盖 config 的 repos_root")
-    ap.add_argument("--author", help="按作者正则筛选提交，覆盖邮箱及 GitHub login 匹配，多身份用 'a|b'")
+    week.add_argument("--week", action="store_true", help=m.CLI_HELP_WEEK)
+    week.add_argument("--last-week", action="store_true", help=m.CLI_HELP_LAST_WEEK)
+    ap.add_argument("--config", default=str(default_config_path()), help=m.CLI_HELP_CONFIG)
+    ap.add_argument("--repos-root", help=m.CLI_HELP_REPOS_ROOT)
+    ap.add_argument("--author", help=m.CLI_HELP_AUTHOR)
     repos = ap.add_mutually_exclusive_group()
-    repos.add_argument("--repo", action="append", default=[], help="追加仓库，仍扫描默认根目录，可重复")
-    repos.add_argument("--only-repo", action="append", help="仅采集这些仓库及其项目会话，可重复")
-    ap.add_argument("--any-author", action="store_true", help="不过滤提交作者；PR 搜索仍限定登录账号")
-    ap.add_argument("--no-git", action="store_true")
+    repos.add_argument("--repo", action="append", default=[], help=m.CLI_HELP_REPO)
+    repos.add_argument("--only-repo", action="append", help=m.CLI_HELP_ONLY_REPO)
+    ap.add_argument("--any-author", action="store_true", help=m.CLI_HELP_ANY_AUTHOR)
+    ap.add_argument("--no-git", action="store_true", help=m.CLI_HELP_NO_GIT)
     ap.add_argument("--fetch", action=argparse.BooleanOptionalAction, default=None,
-                    help="采集前 fetch 所有配置远程（默认开启；--no-fetch 离线采集）")
-    ap.add_argument("--fetch-timeout", type=int, help="每次 Git 同步操作的超时秒数（默认 30）")
+                    help=m.CLI_HELP_FETCH)
+    ap.add_argument("--fetch-timeout", type=int, help=m.CLI_HELP_FETCH_TIMEOUT)
     ap.add_argument("--prs", action=argparse.BooleanOptionalAction, default=None,
-                    help="按 PR 发现本期提交（默认开启；--no-fetch 离线时也禁用）")
-    ap.add_argument("--no-sessions", action="store_true")
-    ap.add_argument("--dirty", action="store_true",
-                    help="附带当前未提交改动（tracked 文件），不推断改动年龄")
-    ap.add_argument("--no-redact", action="store_true", help="关闭证据包脱敏")
-    ap.add_argument("--keep", type=int, help="最新视图保留份数，0 = 不清理；不删除历史快照")
-    ap.add_argument("--max-sessions", type=int, help="详细摘要额度；完整会话索引和 JSON 不截断")
-    ap.add_argument("--whoami", action="store_true",
-                    help="只做身份体检：打印 git 身份、配置里的邮箱、各仓库近期作者")
-    ap.add_argument("--out", help="证据包输出路径")
-    ap.add_argument("--force", action="store_true", help="保存独立快照后更新已存在的最新视图")
-    ap.add_argument("--print", dest="to_stdout", action="store_true", help="打到 stdout")
+                    help=m.CLI_HELP_PRS)
+    ap.add_argument("--no-sessions", action="store_true", help=m.CLI_HELP_NO_SESSIONS)
+    ap.add_argument("--dirty", action="store_true", help=m.CLI_HELP_DIRTY)
+    ap.add_argument("--no-redact", action="store_true", help=m.CLI_HELP_NO_REDACT)
+    ap.add_argument("--keep", type=int, help=m.CLI_HELP_KEEP)
+    ap.add_argument("--max-sessions", type=int, help=m.CLI_HELP_MAX_SESSIONS)
+    ap.add_argument("--whoami", action="store_true", help=m.CLI_HELP_WHOAMI)
+    ap.add_argument("--out", help=m.CLI_HELP_OUT)
+    ap.add_argument("--overwrite", action="store_true", help=m.CLI_HELP_OVERWRITE)
+    ap.add_argument("--force", dest="overwrite", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--print", dest="to_stdout", action="store_true", help=m.CLI_HELP_PRINT)
+    ap.add_argument("--json", dest="json_output", action="store_true", help=m.CLI_HELP_JSON)
     return ap
 
 
@@ -69,19 +69,25 @@ def emit(report: Report, output) -> int:
     text = render(report)
     if output.redact:
         text = redact_text(text)
-    counts = f"{len(report.commits)} commits, {len(report.sessions)} sessions"
+    counts = m.STATUS_COUNTS.format(commits=len(report.commits), sessions=len(report.sessions))
     if output.to_stdout:
         print(text)
-        print(f"[ok] {counts}", file=sys.stderr)
+        print(m.STATUS_OK_TO_STDOUT.format(counts=counts), file=sys.stderr)
         return 0
 
     path = output.evidence_path(report.period)
     evidence = json_evidence(report.as_evidence(), output.redact)
-    write_error = write_evidence(path, text, output.force, evidence)
-    if write_error:
-        print(f"[error] {write_error}", file=sys.stderr)
+    try:
+        written = write_evidence(path, text, output.overwrite, evidence)
+    except EvidenceWriteError as exc:
+        print(m.STATUS_ERROR_PREFIX.format(detail=exc), file=sys.stderr)
         return 2
-    print(f"[ok] {counts} -> {path}", file=sys.stderr)
+    if output.json_output:
+        print(json.dumps({**written.receipt(), "artifact_kind": ArtifactKind.COLLECTION,
+                          "generated_at": evidence["generated_at"],
+                          "counts": {"commits": len(report.commits), "sessions": len(report.sessions)}},
+                         ensure_ascii=False))
+    print(m.STATUS_OK_TO_PATH.format(counts=counts, path=path), file=sys.stderr)
     if output.keep > 0 and path.parent == output.evidence_dir:
         prune_evidence(output.evidence_dir, output.keep)
     return 0
@@ -90,10 +96,12 @@ def emit(report: Report, output) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.json_output and (args.to_stdout or args.whoami):
+        parser.error(m.CLI_ERR_JSON_INCOMPATIBLE)
     try:
         settings = resolve_settings(args)
     except MissingGit as e:
-        print(f"[error] {e}", file=sys.stderr)
+        print(m.STATUS_ERROR_PREFIX.format(detail=e), file=sys.stderr)
         return 2
     except ValueError as e:
         parser.error(str(e))

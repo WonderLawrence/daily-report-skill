@@ -15,8 +15,10 @@ from urllib.parse import parse_qs, urlsplit
 
 from helpers import SessionFixture, make_repo, commit, git, make_identity, run, PERIOD
 from daily_report import github as prs
+from daily_report import github_details as prs_details
 from daily_report import pr_report
-from daily_report.evidence import json_evidence
+from daily_report.evidence import json_evidence, write_evidence
+from daily_report.evidence_reader import read_page
 from daily_report.models import (CommitRef, DetailsReport, Involvement, MessageStatus,
                                  PullRequest, Snapshot)
 
@@ -46,6 +48,24 @@ def api_commit(sha, login=LOGIN, email="dev@example.com", message="fix: RPC null
 
 
 class TestPullRequestDiscovery(unittest.TestCase):
+    def test_discovery_message_survives_snapshot_and_avoids_unneeded_reads(self):
+        message = "fix: RPC null result\n\nPreserve the full rationale, not only the subject."
+        found, commits, _ = self.discover([search_item()], {1: [api_commit("a" * 40, message=message)]})
+        self.assertEqual(commits[0].message, message)
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "evidence.json"
+            source.write_text(json.dumps({"start": PERIOD.start.isoformat(),
+                "end_exclusive": PERIOD.end.isoformat(), "pull_requests": json_evidence(found, False)}))
+            _, chosen = pr_report.load_selection(source, [found[0].id])
+        with patch.object(prs, "api", return_value={"title": "PR", "body": "Background"}) as api, \
+             patch.object(prs.subprocess, "run", side_effect=AssertionError("no local read needed")):
+            details = prs_details.selected_details(chosen[found[0].id])
+        api.assert_called_once_with("repos/acme/node/pulls/1", 30)
+        entry = details.period_commits[0]
+        self.assertEqual((entry.message, entry.message_status, entry.message_source),
+                         (message, MessageStatus.OK, "github_pr_commits"))
+        self.assertEqual(entry.message_retrieved_at, commits[0].message_retrieved_at)
+
     def discover(self, items, commits_by_pr, login=LOGIN, total=None, pages=None,
                  incomplete=False, identity=None, **kwargs):
         def fake_api(endpoint, timeout, paginate=False, item_key=None):
@@ -310,6 +330,36 @@ class TestGitHubAccess(unittest.TestCase):
 
 
 class TestSelectedDetails(SessionFixture):
+    def test_json_receipts_connect_collection_selection_and_bounded_reads(self):
+        for partial in (False, True):
+            with self.subTest(partial=partial):
+                if partial:
+                    self.pr.associated_commits[0].full_sha = 'f' * 40
+                written = write_evidence(self.home / f'collection-{partial}.md', 'fixture', False,
+                    {'schema_version': 1, 'start': PERIOD.start.isoformat(),
+                     'end_exclusive': PERIOD.end.isoformat(), 'sessions': [], 'commits': [],
+                     'pull_requests': json_evidence([self.pr], False)})
+                receipt = self.home / f'collection-{partial}.json'
+                receipt.write_text(json.dumps(written.receipt()))
+                output = self.home / f'selected-{partial}.md'
+                stdout, stderr = io.StringIO(), io.StringIO()
+                with patch.object(prs, 'api', return_value={'title': 'PR', 'body': 'Description'}), \
+                     contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                    code = pr_details.main(['--evidence', str(receipt), '--pr', self.pr.id,
+                                            '--out', str(output), '--json'])
+                self.assertEqual(code, 0)
+                result = json.loads(stdout.getvalue())
+                self.assertEqual(result['status'], 'partial' if partial else 'complete')
+                self.assertEqual(result['summary']['failed_commit_messages'], int(partial))
+                self.assertIn(f"[{result['status']}]", stderr.getvalue())
+                selected_receipt = self.home / f'selected-{partial}.json'
+                selected_receipt.write_text(stdout.getvalue())
+                page = read_page(selected_receipt, pr=self.pr.id, field='description')
+                self.assertEqual(page['data'], 'Description')
+                self.assertEqual(page['artifact_kind'], 'pr_details')
+                data = json.loads(Path(result['evidence_path']).read_text())
+                self.assertEqual(data['source_evidence'], str(written.evidence_path))
+
     def setUp(self):
         super().setUp()
         self.repo = make_repo(self.home)
@@ -333,7 +383,7 @@ class TestSelectedDetails(SessionFixture):
         payload = dict({'number': 1, 'title': 'Fix RPC 1', 'body': body, 'state': 'open',
                         'head': {'sha': self.sha}}, **over)
         with patch.object(prs, 'api', return_value=payload) as api:
-            return prs.selected_details(self.pr), api
+            return prs_details.selected_details(self.pr), api
 
     def test_description_and_commit_messages_are_loaded_without_diffs(self):
         details, api = self.details()
@@ -341,6 +391,8 @@ class TestSelectedDetails(SessionFixture):
         self.assertEqual(details.description, 'Description must not enter discovery')
         entry = details.period_commits[0]
         self.assertEqual(entry.message, 'fix: RPC null result')
+        self.assertEqual(entry.message_source, 'local_git')
+        self.assertTrue(entry.message_retrieved_at)
         self.assertNotIn('feat: old work', entry.message)
         # The change itself is reviewed on demand and never prefetched
         self.assertNotIn('patch', {f.name for f in dataclasses.fields(entry)})
@@ -370,6 +422,86 @@ class TestSelectedDetails(SessionFixture):
         details, _ = self.details()
         self.assertEqual(details.period_commits[0].message_status, MessageStatus.FAILED)
         self.assertEqual(details.description, 'Description must not enter discovery')
+        snapshot = Snapshot(self.home / 'input.json', PERIOD.start.isoformat(), PERIOD.end.isoformat())
+        report = DetailsReport(snapshot, [self.pr.id], [details])
+        self.assertEqual(report.failures, [])
+        self.assertEqual(report.status, 'partial')
+
+    def test_remote_message_fallback_preserves_local_failure_and_never_requests_diff(self):
+        sha = 'f' * 40
+        ref = self.pr.associated_commits[0]
+        ref.full_sha = sha
+        remote = {'sha': sha, 'message': 'fix: full message\n\nReason for the change.'}
+        for local_path in (str(self.repo), ''):
+            with self.subTest(local_path=local_path):
+                ref.repo_path = local_path
+                with patch.object(prs, 'api', side_effect=[{'title': 'PR', 'body': 'Background'}, remote]) as api:
+                    details = prs_details.selected_details(self.pr)
+                entry = details.period_commits[0]
+                self.assertEqual((entry.message, entry.message_status, entry.message_source),
+                                 (remote['message'], MessageStatus.OK, 'github_git_commit'))
+                self.assertTrue(entry.local_message_error)
+                self.assertEqual(entry.message_error, '')
+                self.assertTrue(entry.message_retrieved_at)
+                self.assertEqual([c.args[0] for c in api.call_args_list],
+                                 ['repos/acme/node/pulls/1', f'repos/acme/node/git/commits/{sha}'])
+
+    def test_local_timeout_can_recover_remotely_but_wrong_sha_cannot(self):
+        ref = self.pr.associated_commits[0]
+        for remote in ({'sha': self.sha, 'message': 'Recovered'},
+                       {'sha': 'f' * 40, 'message': 'Wrong commit'},
+                       prs.GitHubError('HTTP 404')):
+            with self.subTest(remote=remote), \
+                 patch.object(prs.subprocess, 'run', side_effect=subprocess.TimeoutExpired('git', 2)), \
+                 patch.object(prs, 'api', side_effect=[remote]):
+                entry = prs_details._period_commit(ref, self.pr.repository, 2)
+            self.assertIn('超时', entry.local_message_error)
+            if isinstance(remote, dict) and remote['sha'] == self.sha:
+                self.assertEqual(entry.message_status, MessageStatus.OK)
+            else:
+                self.assertEqual(entry.message_status, MessageStatus.FAILED)
+                self.assertIn('GitHub 回退失败', entry.message_error)
+                self.assertIsNone(entry.message)
+
+    def test_report_status_includes_unknown_and_capped_commit_lists(self):
+        snapshot = Snapshot(self.home / 'input.json', PERIOD.start.isoformat(), PERIOD.end.isoformat())
+        self.pr.associated_commits = []
+        for involvement, capped, expected in (
+                (Involvement.NO_PERIOD_COMMITS, False, 'complete'),
+                (Involvement.UNQUERIED, False, 'partial'),
+                (Involvement.FAILED, False, 'partial'),
+                (Involvement.NO_PERIOD_COMMITS, True, 'partial')):
+            with self.subTest(involvement=involvement, capped=capped):
+                self.pr.involvement, self.pr.commit_list_capped = involvement, capped
+                details, _ = self.details()
+                report = DetailsReport(snapshot, [self.pr.id], [details])
+                self.assertEqual(report.status, expected)
+                self.assertEqual(report.summary.incomplete_commit_lists, int(expected == 'partial'))
+                self.assertEqual(report.as_evidence('now')['status'], expected)
+                self.assertIn(f'完整性：{expected}', pr_report.render_markdown(report))
+
+    def test_partial_cli_saves_available_evidence_and_reports_all_gaps(self):
+        self.pr.associated_commits[0].repo_path = ''
+        missing = dataclasses.replace(self.pr, id='acme/node#2', number=2,
+                                      url='https://github.com/acme/node/pull/2')
+        source, output = self.home / 'evidence.json', self.home / 'partial.md'
+        source.write_text(json.dumps({'start': PERIOD.start.isoformat(),
+            'end_exclusive': PERIOD.end.isoformat(),
+            'pull_requests': json_evidence([self.pr, missing], False)}))
+        out = io.StringIO()
+        responses = [{'title': 'PR', 'body': 'Background'}, prs.GitHubError('HTTP 404'),
+                     prs.GitHubError('HTTP 403')]
+        with patch.object(prs, 'api', side_effect=responses), contextlib.redirect_stdout(out):
+            code = pr_details.main(['--evidence', str(source), '--out', str(output),
+                                    '--pr', self.pr.id, '--pr', missing.id])
+        self.assertEqual(code, 0, 'usable partial evidence is still saved')
+        self.assertIn('[partial] 1/2 PR details', out.getvalue())
+        data = json.loads(next(self.home.glob('.history/partial.md/*/evidence.json')).read_text())
+        self.assertEqual(data['status'], 'partial')
+        self.assertEqual(data['summary'], {'requested_prs': 2, 'loaded_prs': 1, 'failed_prs': 1,
+            'commit_messages': 1, 'failed_commit_messages': 1, 'incomplete_commit_lists': 0})
+        self.assertEqual(data['pull_requests'][0]['description'], 'Background')
+        self.assertIn('完整性：partial', output.read_text())
 
     def test_selected_pr_without_commits_loads_background_and_carries_participation_gap(self):
         source = self.home / 'evidence.json'
@@ -382,7 +514,7 @@ class TestSelectedDetails(SessionFixture):
                     'pull_requests': [json_evidence(self.pr, False)]}))
                 snapshot, chosen = pr_report.load_selection(source, [self.pr.id])
                 with patch.object(prs, 'api', return_value={'title': 'Review PR', 'body': 'Background'}), \
-                     patch.object(prs, '_period_commit') as read_commit:
+                     patch.object(prs_details, '_period_commit') as read_commit:
                     details, failures = pr_report.fetch_details(chosen, 30)
                 self.assertEqual(failures, [])
                 self.assertEqual(details[0].description, 'Background')
@@ -430,11 +562,12 @@ class TestSelectedDetails(SessionFixture):
         result = subprocess.run(args, capture_output=True, text=True,
                                 env=dict(os.environ, PATH=f'{stub.parent}{os.pathsep}{os.environ["PATH"]}'))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('[ok] 9 PR details', result.stdout)
+        self.assertIn('[complete] 9/9 PR details', result.stdout)
         snapshot = next(self.home.glob('.history/selected.md/*/evidence.json'))
         data = json.loads(snapshot.read_text())
         self.assertEqual(data['selected_prs'], [pr.id for pr in records])
         self.assertEqual(data['failures'], [])
+        self.assertEqual(data['status'], 'complete')
         by_id = {pr['id']: pr for pr in data['pull_requests']}
         self.assertEqual(set(by_id), {pr.id for pr in records})
         merged = by_id['acme/node#2611']
@@ -455,10 +588,10 @@ class TestSelectedDetails(SessionFixture):
                             '2026-10-16T00:00:00+08:00', '2026-10-17T00:00:00+08:00')
         report = DetailsReport(snapshot, [self.pr.id], [details])
         output = self.home / 'selected.md'
-        self.assertIsNone(pr_report.write_report(output, report, False))
+        pr_report.write_report(output, report, False)
         # A latest view left by the old writer must not leak into a new previous.md.
         output.write_text('legacy title ' + secret)
-        self.assertIsNone(pr_report.write_report(output, report, True))
+        pr_report.write_report(output, report, True)
         files = [output, *self.home.glob('.history/*/*/*')]
         self.assertTrue(any(path.name == 'previous.md' for path in files))
         self.assertTrue(any(path.name == 'evidence.json' for path in files))

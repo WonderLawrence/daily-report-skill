@@ -104,8 +104,8 @@ def sync(source: Path, destination: Path, apply: bool = False) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument('--check', action='store_true', help='只核对内容，存在差异时退出码为 1')
-    mode.add_argument('--apply', action='store_true', help='备份旧目录后安装完整新版并核验哈希')
+    mode.add_argument('--check', action='store_true', help='Compare contents only; exit 1 if differences exist')
+    mode.add_argument('--apply', action='store_true', help='Back up the existing installation, install the new version, and verify hashes')
     parser.add_argument('--dest', type=Path, default=Path.home() / '.agents/skills/daily-report')
     args = parser.parse_args()
     try:

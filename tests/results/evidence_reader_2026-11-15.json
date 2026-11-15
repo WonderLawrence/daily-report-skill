@@ -1,0 +1,63 @@
+{
+  "date": "2026-11-15",
+  "kind": "evidence_receipt_and_reader_regression",
+  "validation": {
+    "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -q",
+    "tests": 180,
+    "result": "pass",
+    "elapsed_seconds": 14.689,
+    "skill_validator": "pass",
+    "reference_links": "pass"
+  },
+  "covered": [
+    "Collection and selected-PR --json emit parseable receipts on stdout with diagnostics on stderr.",
+    "Receipts resolve the exact immutable snapshot after later force updates, including paths with spaces.",
+    "The selected-PR command consumes collection receipts and preserves complete/partial summaries in its own receipts.",
+    "Unknown fields, unknown IDs, ambiguous short IDs, malformed inputs and invalid offsets fail explicitly without success output.",
+    "Projection validates field names even for empty known lists.",
+    "List pages preserve ordering and source locators; encoded character budgets and next_offset permit exact text reassembly.",
+    "Oversized individual records fail explicitly and direct callers to narrower fields instead of silently truncating data.",
+    "Write failures preserve existing evidence and cannot emit success receipts."
+  ],
+  "source_replay": {
+    "report_date": "2026-11-12",
+    "pr_descriptions": 10,
+    "sessions": 12,
+    "event_locators": 750,
+    "longest_event_characters": 55843,
+    "bounded_pages": 145,
+    "reassembled_exactly": true,
+    "source_files_unchanged": true
+  },
+  "limitations": [
+    "No new model writing or multi-turn behavior evaluation; prior results remain historical.",
+    "No live GitHub request was needed for the reader validation.",
+    "Pagination bounds displayed output; the complete JSON is still loaded from disk."
+  ],
+  "tested_sha256": {
+    "scripts/collect.py": "58866982ccb8b6aafe6047bc56517f4086032bb3132c249e447efdcd1ed6fdba",
+    "scripts/daily_report/analysis.py": "fe552d6d5ec8eeaefba445ea0b29afc99d9b09a6f3e8d76f30014670b2a409a3",
+    "scripts/daily_report/diagnostics.py": "cfbbb00e521b3d49f5d88d6e9c76f24e04e70687c4a917968e8079d00a23daaa",
+    "scripts/daily_report/evidence.py": "a9193b62711082850d12fb90a04bc6ca83c350e4a177cba46a70f337770dc8e1",
+    "scripts/daily_report/evidence_reader.py": "7af3efd71d35ead8a529410e371cc119cdc7276cf60942cd9beca9feda854189",
+    "scripts/daily_report/github.py": "d66abdbe56a102664e9607174acb48b2494e09b685737af4aa601907badf5c04",
+    "scripts/daily_report/gitlog.py": "1793a36b41adfb14aedf318881b276d104856b8a664f267c3db7f888bf469e27",
+    "scripts/daily_report/models.py": "9c187a781af7bb4b731c847ecc9133b539622a126f8369d2d264ce975232fea7",
+    "scripts/daily_report/pr_report.py": "7592f7d9abd18bb87f0894c9dd77d12f44774ee5eb0f847afe4ddb26bec659c4",
+    "scripts/daily_report/render.py": "64c30e37f7c718e1601c57fed86042af6a8028484c0b43535c068acfb13342b7",
+    "scripts/daily_report/session_events.py": "11d86610daa054ec2bc9388a88e17885b5cbf897fe7e43f18141c5580eee31f4",
+    "scripts/daily_report/sessions.py": "98c9a7c1c2aae83a690bb46404e06f70cbdbf4e878c74678a315c7ef72e04d0a",
+    "scripts/daily_report/settings.py": "f2cc5509727d8e41a42af1d57f4f504f30e3e25a388dd4d978740e3025846f83",
+    "scripts/daily_report/text.py": "5372acb474a0064a34801f8933857e8f1101a00801ecf66794f4dd851dcfb4b2",
+    "scripts/pr_details.py": "3224bcc97ac9cb3296327c851b3cd57291b3aabfc57f1f96a40d97499d055cb0",
+    "scripts/read_evidence.py": "1771f987e4eabcb7fc81a9d97c45e001df581336dbf7bd39f30e08469d738855",
+    "tests/helpers.py": "336bf3c747a6abacaf845356f4578e9828d391002c6c976eed310cdbf3bbd275",
+    "tests/test_evidence.py": "ae77fb5d4d406f72fac18b197bf8531358ef65b98a71b5db8f83fcf199808e2d",
+    "tests/test_fetch.py": "10856919bbbd05bfaf011eb0ad203c510435d14868cfc6800826ef7ab85477f4",
+    "tests/test_git.py": "b9b533925a78ad1ee32bf7e9b88a00588529fef90ba8e6654cdd83ab40e12932",
+    "tests/test_prs.py": "e7deea12f52e56fb59a787adf98755231c723fb4e87190ccaa9e5ddbec6e485c",
+    "tests/test_reader.py": "e9f91381db660f54679e454ad5d0edc560a2df9a32734011073847cf1749aaa0",
+    "tests/test_render.py": "72a9c586d029bf51c0a5adf71ee66d06a3a0a7521c7499524e38f295ecfc83b6",
+    "tests/test_sessions.py": "9b7df69d4af6955f152dca2719f83cc06c8c370eb230ec270a26029d1e20954d"
+  }
+}

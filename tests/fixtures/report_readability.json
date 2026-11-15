@@ -1,0 +1,114 @@
+{
+  "date": "2026-10-16",
+  "cases": [
+    {
+      "id": "dense_selected_work",
+      "request": "根据下面已选定事项的完整材料写今天的日报，直接回复。",
+      "context": "以下 PR 都是本人工作。对象选择已完成，没有额外文档材料；材料中的本期指 2026-10-16。",
+      "evidence": [
+        {
+          "id": "P31",
+          "kind": "pr_description",
+          "pr": "acme/store#31",
+          "text": "过滤器配置：原来各表沿用全局选项，本 PR 增加按表覆盖，允许交易哈希表单独启用 optimize_filters。显式表配置优先于默认值。选项作用于新生成的数据文件；旧 SST 要经 compaction 重写才改变 filter。"
+        },
+        {
+          "id": "C31",
+          "kind": "commit",
+          "at": "2026-10-16T10:20:00+08:00",
+          "pr": "acme/store#31",
+          "text": "补齐 table_options.opt_filters 映射；配置、CLI、日志统一改名 optimize_filters；默认交易哈希表开启；补 table override / default precedence 测试，修正文档。"
+        },
+        {
+          "id": "T31",
+          "kind": "tool_call",
+          "call_id": "filter-tests",
+          "text": "运行配置单测、带 main-db-tx-lookups 特性的目标测试，以及 fmt 和 Clippy"
+        },
+        {
+          "id": "T32",
+          "kind": "tool_result",
+          "call_id": "filter-tests",
+          "text": "最终改名后：42 项配置测试、1 项 main-db-tx-lookups 目标测试通过；fmt、Clippy 退出 0。没有运行全量测试。"
+        },
+        {
+          "id": "N31",
+          "kind": "user_note",
+          "text": "#31 当天已提交，10 月 17 日才合并。未命中哈希查询的 I/O 和延迟影响还没有测量。"
+        },
+        {
+          "id": "P32",
+          "kind": "pr_description",
+          "pr": "acme/node#32",
+          "text": "实时状态索引重构的实现此前已完成。本期仅补一条回归测试：缺少字节码时不能修改共享索引。"
+        },
+        {
+          "id": "C32",
+          "kind": "commit",
+          "at": "2026-10-16T11:00:00+08:00",
+          "pr": "acme/node#32",
+          "text": "增加 missing bytecode 时不改变 shared index 的回归测试。PR 当天合并。"
+        },
+        {
+          "id": "C33",
+          "kind": "commit",
+          "at": "2026-10-16T14:00:00+08:00",
+          "pr": "acme/node#33",
+          "text": "在 key 索引中记录 first_write_index，旧快照访问之后才首次写入的 key 时直接返回无变更，不再扫描条目。把依赖内部结构的断言改为通过公开接口检查账户创建、删除前后的快照可见性。本期已提交、尚未合并，未提供本项测试运行结果。"
+        },
+        {
+          "id": "P34",
+          "kind": "pr_description",
+          "pr": "acme/node#34",
+          "text": "cli-util 迁移目标是停止维护本地 fork，直接依赖上游 cli-util v2.3.0。保留项目定制的 panic 日志处理，SIGSEGV handler 仍先安装；上游 jemalloc 0.6 与工作区 0.7 都声明 links=jemalloc，不能同时启用。"
+        },
+        {
+          "id": "C34",
+          "kind": "commit",
+          "at": "2026-10-16T16:00:00+08:00",
+          "pr": "acme/node#34",
+          "text": "移除本地 cli-util 成员与 patch；panic hook 迁往 acme-utils，保留安装顺序；共享 allocator 支持移至 acme-utils，各二进制保留 global_allocator 声明，避开不兼容依赖。当天已提交，尚未合并。没有量化维护成本或运行性能变化。"
+        }
+      ],
+      "criteria": [
+        "首句让读者理解每个主题的工作对象和变化；过滤器主题说明可以按表配置，不能只列选项改名和实现名。",
+        "解释首写位置记录如何让旧快照跳过之后才出现的数据，不要求读者自行串联 key、index、扫描等词。",
+        "区分 #32 本期只补测试、#33 完成后续优化；不能把整个索引重构算成本期实现，不能把 #33 测试写成已通过。",
+        "保留旧数据需重写后生效的条件，不声称未命中查询的 I/O 或延迟已改善；如提及 #31 验证，只能说明相关测试通过。",
+        "无需逐项列出提交和合并状态；如提及，不将 #31 后续合并倒填为当天合并，不暗示 #33、#34 已合并、评审已通过或只剩合并动作。",
+        "cli-util 迁移讲清直接依赖上游、保留自定义日志行为、处理分配器依赖冲突；不补写量化收益或未证实的性能提升。",
+        "主要成果先写并适当展开，辅助修改简述；必要条件清楚，不把全部细节压入长句，不强制翻译英文专有名词，也不以字符数单独判定。",
+        "正常覆盖所选工作，直接回复；不重新选择、不采集、不把测试材料落盘为正式日报。"
+      ]
+    },
+    {
+      "id": "brief_without_motive",
+      "request": "把这项完整记录写成不超过 100 字的日报条目，直接回复。",
+      "evidence": [
+        {
+          "id": "C41",
+          "kind": "commit",
+          "text": "acme-store：将快照索引字段 startOffset 重命名为 firstWriteIndex，并同步调整读取引用。已本地提交，未提供重命名原因、收益或合并状态。"
+        },
+        {
+          "id": "T41",
+          "kind": "tool_call",
+          "call_id": "rename-tests",
+          "text": "仅运行快照索引字段命名迁移的 3 项单测"
+        },
+        {
+          "id": "T42",
+          "kind": "tool_result",
+          "call_id": "rename-tests",
+          "text": "3 passed，退出 0；没有全量重跑记录。"
+        }
+      ],
+      "criteria": [
+        "在 100 字内清楚说明快照索引字段的重命名与引用调整，不通过缩写或拼接名词压缩。",
+        "以完成内容为主，无需罗列提交、合并和测试状态；如提及，不能暗示已合并或全量测试通过。",
+        "不编造重命名动机，不写修复查询错误、提升性能或其他未提供的收益。",
+        "直接交付条目，不重复确认范围、补问材料或运行采集。"
+      ]
+    }
+  ]
+}

@@ -150,6 +150,7 @@ class TestFetch(unittest.TestCase):
         snapshot = next((evidence.parent / ".history").glob("*/*/evidence.json"))
         data = json.loads(snapshot.read_text())
         self.assertEqual(data["git_fetch"][0]["status"], "failed")
+        self.assertIn("does not appear to be a git repository", data["git_fetch"][0]["detail"])
         self.assertEqual(data["diagnostics"]["git"]["fetch_failed"], 1)
         self.assertEqual(data["diagnostics"]["git"].get("failed_files", 0), 0)
 
@@ -159,6 +160,22 @@ class TestFetch(unittest.TestCase):
         self.cli("--no-fetch", discovered=found)
         self.assertFalse(found[0].local_available)
         self.assertIsNone(found[0].files)
+
+    def test_fetch_error_is_sanitized_before_stderr_and_artifact_output(self):
+        token = 'ghp_' + 'a' * 36
+        secret = 'fixture-url-password'
+        error = (f"fatal: could not read https://name:{secret}@example.com/repo.git\n"
+                 f"error: ssh://name:{secret}@example.com/repo.git denied\n"
+                 f"error: git@example.com:repo.git denied {token} token=fixture-secret-value\n")
+        responses = [subprocess.CompletedProcess([], 0, 'origin\n', ''),
+                     subprocess.CompletedProcess([], 1, '', error)]
+        with patch.object(gitlog, '_git', side_effect=responses):
+            results, warning = stderr_of(gitlog.fetch_repos, [self.repo], True, 2, GitDiagnostics())
+        for output in (results[0].detail, warning):
+            self.assertIn('denied', output)
+            self.assertIn('[remote-url]', output)
+            for sensitive in (token, secret, 'fixture-secret-value', 'git@example.com:repo.git'):
+                self.assertNotIn(sensitive, output)
 
     def test_no_remote_is_a_normal_local_repository(self):
         git(self.repo, "remote", "remove", "origin")

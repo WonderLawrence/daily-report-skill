@@ -10,28 +10,27 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+from . import limits
+from . import messages as m
 from .analysis import scope_summary
 from .diagnostics import (GitDiagnostics, PullRequestDiagnostics, SessionDiagnostics,
                           SourceDiagnostics)
 from .evidence import format_counts
-from .models import (Commit, DirtyState, Event, FetchResult, Involvement, PullRequest,
-                     Report, Scope, Session)
-from .text import is_injected, one_line, short_id
-
-ACKNOWLEDGMENTS = {"好", "好的", "收到", "明白", "可以", "继续", "继续吧", "请继续",
-                   "完成", "完成了", "谢谢", "ok", "okay", "done", "continue", "thanks"}
+from .models import (Commit, DirtyState, Event, EventKind, FetchResult, Involvement,
+                     PullRequest, Report, Scope, Session)
+from .text import one_line, short_id, substantive_text
 
 # One place for the four Involvement values and their rendered descriptions; keeps the
 # contract between discovery (writer) and this section (reader) in a single table.
 _PR_STATE: dict[str, str] = {
-    Involvement.COMMITS: "本期本人提交 {n} 条",
-    Involvement.NO_PERIOD_COMMITS: "本期无本人提交（可能是评审或讨论，需初筛确认）",
-    Involvement.UNQUERIED: "未查询提交（超出查询额度）",
-    Involvement.FAILED: "提交查询失败，覆盖未确认",
+    Involvement.COMMITS: m.R_PR_STATE_COMMITS,
+    Involvement.NO_PERIOD_COMMITS: m.R_PR_STATE_NO_COMMITS,
+    Involvement.UNQUERIED: m.R_PR_STATE_UNQUERIED,
+    Involvement.FAILED: m.R_PR_STATE_FAILED,
 }
 
 
-def _rel(paths: set[str], cwd: str, limit: int = 4) -> list[str]:
+def _rel(paths: set[str], cwd: str, limit: int = limits.REL_PATHS) -> list[str]:
     out = []
     for p in sorted(paths):
         try:
@@ -46,47 +45,46 @@ def _rel(paths: set[str], cwd: str, limit: int = 4) -> list[str]:
 
 
 def _period_word(days: int) -> str:
-    return "日报" if days == 1 else "周报" if days == 7 else f"{days} 天汇总"
+    if days == 1:
+        return m.R_PERIOD_DAILY
+    if days == 7:
+        return m.R_PERIOD_WEEKLY
+    return m.R_PERIOD_GENERIC.format(days=days)
 
 
 def coverage_status(diag: SourceDiagnostics) -> str:
     """Turn one source's counts into a sentence; a missing source and "no records" differ."""
     if diag.disabled:
-        return "未启用"
+        return m.COV_DISABLED
     if diag.unavailable:
-        return "来源不可用（目录或依赖缺失）"
+        return m.COV_UNAVAILABLE
     if diag.failed_files:
-        return "部分失败" if diag.ok_files else "读取或解析失败"
+        return m.COV_PARTIAL_SOME_OK if diag.ok_files else m.COV_FAILED
     if diag.has_fetch_gap:
-        return "远程同步不完整，使用可读的本地记录"
-    return "正常" if diag.has_records else "所选范围无记录"
+        return m.COV_FETCH_GAP
+    return m.COV_OK if diag.has_records else m.COV_EMPTY
 
 
-def event_excerpt(event: Event, limit: int = 260) -> str:
+def event_excerpt(event: Event, limit: int = limits.EVENT_EXCERPT) -> str:
     locator = f"{event.at:%m-%d %H:%M:%S} · {event.source}:{event.line}"
-    call = f" · call {event.call_id}" if event.call_id else ""
-    return f"{one_line(event.text, limit)} （{locator}{call}）"
+    call = m.R_EVENT_CALL_SUFFIX.format(call_id=event.call_id) if event.call_id else ""
+    return m.R_EVENT_LOCATOR.format(text=one_line(event.text, limit), locator=locator, call=call)
 
 
 def session_index_hint(session: Session) -> tuple[str, str | None]:
     """Find a usable text clue, without deciding work value or dropping evidence."""
 
-    def usable(text: str) -> bool:
-        text = text.strip()
-        return (bool(text) and not is_injected(text)
-                and text.casefold().strip("。.!！?？,，;；:： ") not in ACKNOWLEDGMENTS)
-
-    requests = [text for text in session.users if usable(text)]
+    requests = [text for text in session.users if substantive_text(text)]
     if requests:
         chosen = requests[:1] + requests[-1:] if len(requests) > 1 else requests
-        return one_line(" / ".join(chosen), 160), "user_request"
+        return one_line(" / ".join(chosen), limits.SESSION_HINT), EventKind.USER_REQUEST
     # A continuation may have no in-window request, or end with an acknowledgment.
     # Use the last substantive statement in the retained in-window events.
     claims = [event.text for event in session.events
-              if event.kind == "assistant_statement"] or session.concl
+              if event.kind == EventKind.ASSISTANT_STATEMENT] or session.concl
     for text in reversed(claims):
-        if usable(text):
-            return one_line(text, 160), "assistant_statement"
+        if substantive_text(text):
+            return one_line(text, limits.SESSION_HINT), EventKind.ASSISTANT_STATEMENT
     return "", None
 
 
@@ -95,66 +93,69 @@ def _header(report: Report) -> list[str]:
     period = report.period
     span = (period.start.strftime("%Y-%m-%d") if period.single_day
             else f"{period.start:%Y-%m-%d} → {period.last_day:%Y-%m-%d}")
-    lines = [f"# 工作证据 {span}", ""]
+    lines = [m.R_H_EVIDENCE.format(span=span), ""]
     if report.generated:
         # The pack is a point in time snapshot: later commits and sessions are not in it,
-        # and re-running needs --force
-        lines += [f"_生成于 {report.generated:%Y-%m-%d %H:%M}（UTC{report.generated:%z}）_", ""]
+        # and replacing the latest view needs --overwrite.
+        lines += [m.R_GENERATED.format(time=f"{report.generated:%Y-%m-%d %H:%M}",
+                                        offset=f"{report.generated:%z}"), ""]
     return lines
 
 
 def _scope_section(scope: Scope | None) -> list[str]:
     if scope is None:
         return []
+    uncollected = m.R_SCOPE_UNCOLLECTED
     git_scope = (", ".join(scope.repos) if scope.git and scope.repos
-                 else "未采集" if not scope.git else "已启用，但未发现仓库")
-    lines = ["## 采集范围",
-             "- Git：" + git_scope,
-             "- 会话：" + (", ".join(scope.sessions) if scope.sessions else "未采集"),
-             "- 当前工作区状态：" + ("已扫描（运行时快照）" if scope.dirty else "未采集")]
+                 else uncollected if not scope.git else m.R_SCOPE_GIT_EMPTY)
+    lines = [m.R_H_SCOPE,
+             m.R_SCOPE_GIT_LINE.format(detail=git_scope),
+             m.R_SCOPE_SESSIONS_LINE.format(detail=", ".join(scope.sessions)
+                                            if scope.sessions else uncollected),
+             m.R_SCOPE_DIRTY_LINE.format(detail=m.R_SCOPE_DIRTY_YES if scope.dirty
+                                         else uncollected)]
     if scope.only_repos:
-        lines.append("- 仅关注项目：" + ", ".join(scope.only_repos))
+        lines.append(m.R_SCOPE_ONLY_REPOS_LINE.format(detail=", ".join(scope.only_repos)))
     return lines + [""]
 
 
 def _source_counts(diag: SourceDiagnostics) -> str:
     """Only the counters that exist for this kind of source; no cross-source zeros."""
     if isinstance(diag, GitDiagnostics):
-        return f"；提交 {diag.commits}"
+        return m.R_DIAG_GIT_SUFFIX.format_map(vars(diag))
     if isinstance(diag, SessionDiagnostics):
-        return (f"；会话 {diag.sessions}；详细摘要 {diag.detailed}，"
-                f"摘要省略 {diag.omitted}；范围外会话 {diag.scope_excluded}，"
-                f"项目无法确认 {diag.scope_unknown}；提取用户消息 {diag.user_messages}，"
-                f"助手文字 {diag.assistant_messages}，文字消息解析不完整 {diag.unparsed_messages}")
+        return m.R_DIAG_SESSION_SUFFIX.format_map(vars(diag))
     return ""
 
 
 def _diagnostics_section(diagnostics: dict[str, SourceDiagnostics]) -> list[str]:
     if not diagnostics:
         return []
-    lines = ["## 采集诊断", ""]
+    lines = [m.R_H_DIAG, ""]
     for name, diag in diagnostics.items():
-        lines.append(f"- {name}：{coverage_status(diag)}；扫描 {diag.scanned}，"
-                     f"无已知解析错误 {diag.ok_files}，失败/部分解析 {diag.failed_files}，"
-                     f"坏记录 {diag.invalid_records}" + _source_counts(diag))
+        lines.append(m.R_DIAG_LINE.format_map(
+            {**vars(diag), "name": name, "status": coverage_status(diag)}) + _source_counts(diag))
+        if isinstance(diag, SessionDiagnostics) and diag.issues:
+            lines.append(m.R_DIAG_ISSUES_HEAD)
+            for issue in diag.issues:
+                record_type = (m.R_DIAG_ISSUE_RECORD_TYPE.format_map(vars(issue))
+                               if issue.record_type else "")
+                lines.append(m.R_DIAG_ISSUE_LINE.format_map(
+                    {**vars(issue), "record_type": record_type}))
     git = diagnostics.get("git")
     if git is not None and (git.local_commits or git.commits_without_local_copy):
-        lines.append(f"- git 补充：本地扫描到本人提交 {git.local_commits}，"
-                     f"其中未在本次 PR 检索结果中找到关联 {git.local_unassociated}（不在证据内，"
-                     f"需要时用会话记录或用户说明补充）；本期 PR 提交在本地找不到 "
-                     f"{git.commits_without_local_copy} 条（只有平台元数据）")
-    return lines + ["计数单位：Git 为仓库，会话来源为文件；成功和失败文件分别计数。"
-                    "摘要省略的会话仍在完整索引及结构化证据中。", ""]
+        lines.append(m.R_DIAG_GIT_EXTRA.format_map(vars(git)))
+    return lines + [m.R_DIAG_FOOTER, ""]
 
 
 def _fetch_section(results: list[FetchResult]) -> list[str]:
     if not results:
         return []
-    lines = ["### Git 远程同步", ""]
+    lines = [m.R_H_FETCH, ""]
     for result in results:
-        lines.append(f"- `{result.repo_path}`：{result.detail}；检查时间 {result.checked_at}")
-    return lines + ["同步失败或跳过时，提交仅反映当前本地引用，远程覆盖未确认。"
-                    "fetch 成功也不证明提交已合并、已验证或已部署。", ""]
+        lines.append(m.R_FETCH_LINE.format(repo_path=result.repo_path, detail=result.detail,
+                                           checked_at=result.checked_at))
+    return lines + [m.R_FETCH_FOOTER, ""]
 
 
 def _pr_section(diag: PullRequestDiagnostics | None,
@@ -162,28 +163,23 @@ def _pr_section(diag: PullRequestDiagnostics | None,
     """First level index: the PRs involved this period and how many own commits each yielded."""
     if diag is None:
         return []
-    lines = ["### 本期 PR（第一层：involves 本人，按最近更新）", "",
-             f"状态：{diag.status}；搜到 PR {diag.prs_found}，"
-             f"含本期本人提交 {diag.prs_with_commits}，"
-             f"本期无本人提交 {diag.prs_without_commits}；"
-             f"查询 {diag.queries}，失败 {diag.failures}，未查询 {diag.unqueried}。"]
+    lines = [m.R_H_PR, "", m.R_PR_SUMMARY.format_map(vars(diag))]
     if diag.detail:
         lines.append(diag.detail)
     if diag.out_of_scope:
-        lines.append(f"范围外 PR {diag.out_of_scope} 个（仅关注项目限定），未纳入。")
+        lines.append(m.R_PR_OUT_OF_SCOPE.format(count=diag.out_of_scope))
     if diag.unsupported_repos:
-        lines.append("本地没有对应仓库的 PR：" + ", ".join(sorted(set(diag.unsupported_repos)))
-                     + "；这些提交只有平台元数据，无法在本地核对改动。")
-    lines += ["`involves:` 只匹配 author/assignee/mentions/commenter，不含提交作者："
-              "他人创建、含本人提交但本人从未留言的 PR 不会出现在这里。"
-              "此处不含 Description；选定工作事项后再用 pr_details.py 获取详情。", ""]
+        lines.append(m.R_PR_UNSUPPORTED.format(
+            repos=", ".join(sorted(set(diag.unsupported_repos)))))
+    lines += [m.R_PR_INVOLVES_NOTE, ""]
     for pr in pull_requests:
-        state = _PR_STATE.get(pr.involvement, "未知参与形式").format(n=len(pr.associated_commits))
-        lines.append(f"- [{pr.id}]({pr.url})：{one_line(pr.title, 180)}；{state}；"
-                     f"读取时状态 {pr.state_at_discovery}；"
-                     f"更新于 {pr.updated_at}；获取时间 {pr.retrieved_at}")
+        state = _PR_STATE.get(pr.involvement, m.R_PR_STATE_UNKNOWN).format(
+            n=len(pr.associated_commits))
+        lines.append(m.R_PR_LINE.format_map(
+            {**vars(pr), "title": one_line(pr.title, limits.PR_TITLE), "state": state}))
         if pr.associated_commits:
-            lines.append("  参与线索：" + ", ".join(c.full_sha for c in pr.associated_commits))
+            lines.append(m.R_PR_COMMITS_LINE.format(
+                shas=", ".join(c.full_sha for c in pr.associated_commits)))
     return lines + [""]
 
 
@@ -191,24 +187,25 @@ def _topic_section(commits: list[Commit]) -> list[str]:
     rows = scope_summary(commits)
     if not rows:
         return []
-    lines = ["## 主题候选（按 commit scope 聚合，仅供参考）"]
+    lines = [m.R_H_TOPIC]
     for name, total, types in rows:
-        lines.append(f"- `{name}`：{total} 条 — " + " / ".join(f"{t} {n}" for t, n in types))
+        lines.append(m.R_TOPIC_LINE.format(scope=name, total=total,
+                                            types=" / ".join(f"{t} {n}" for t, n in types)))
     return lines + [""]
 
 
 def _commit_flags(commit: Commit) -> str:
     flags = []
     if commit.files is None:
-        flags.append("本地未找到该提交，仅平台元数据")
+        flags.append(m.R_COMMIT_FLAG_NO_LOCAL)
     if commit.revert:
-        flags.append("⚠️REVERT")
+        flags.append(m.R_COMMIT_FLAG_REVERT)
     if commit.reverted_by:
-        flags.append(f"已被 {commit.reverted_by} 回退")
+        flags.append(m.R_COMMIT_FLAG_REVERTED_BY.format(sha=commit.reverted_by))
     if commit.reverts_sha:
-        flags.append(f"回退 {commit.reverts_sha}")
+        flags.append(m.R_COMMIT_FLAG_REVERTS.format(sha=commit.reverts_sha))
     if commit.copies:
-        flags.append(f"另有 {commit.copies} 个副本")
+        flags.append(m.R_COMMIT_FLAG_COPIES.format(count=commit.copies))
     return ("  " + "；".join(flags)) if flags else ""
 
 
@@ -221,48 +218,50 @@ def _authored_note(commit: Commit) -> str:
                    datetime.fromisoformat(commit.authored)).days)
     except ValueError:
         gap = 0
-    return f"（作者 {commit.authored[5:10]}）" if gap > 1 else ""
+    return m.R_COMMIT_AUTHORED.format(authored_date=commit.authored[5:10]) if gap > 1 else ""
 
 
 def _commits_section(commits: list[Commit], extras: int) -> list[str]:
-    head = f"## A. 本期提交（{len(commits)} 条，来自上列 PR"
-    head += f"，已折叠 {extras} 个 rebase 副本）" if extras else "）"
+    head = (m.R_H_COMMITS_WITH_EXTRAS.format(count=len(commits), extras=extras) if extras
+            else m.R_H_COMMITS_BARE.format(count=len(commits)))
     lines = [head]
     if not commits:
-        lines.append("_无提交_")
+        lines.append(m.R_COMMITS_EMPTY)
     by_repo: dict[str, list[Commit]] = {}
     for commit in commits:
         by_repo.setdefault(commit.repo, []).append(commit)
     for repo, items in by_repo.items():
-        lines.append(f"### {repo}")
+        lines.append(m.R_COMMIT_REPO_HEADER.format(repo=repo))
         for commit in items:
-            size = ("(改动规模未知：本地没有该提交)" if commit.files is None else
-                    f"(+{commit.added}/-{commit.deleted}, {len(commit.files)} files)")
-            lines.append(f"- [{commit.at[5:10]}]{_authored_note(commit)} {commit.subject}"
-                         f"{_commit_flags(commit)}  {size}")
-            source = ", ".join(commit.pr_ids) if commit.pr_ids else "无关联 PR"
-            lines.append(f"  证据：commit `{commit.full_sha}` · {commit.at}"
-                         f" · 仓库 `{commit.repo_path or repo}` · 来自 {source}"
-                         f"（不证明已合并或已验证）")
+            size = (m.R_COMMIT_SIZE_UNKNOWN if commit.files is None
+                    else m.R_COMMIT_SIZE.format_map(
+                        {**vars(commit), "files": len(commit.files)}))
+            lines.append(m.R_COMMIT_LINE.format_map(
+                {**vars(commit), "date": commit.at[5:10],
+                 "authored_note": _authored_note(commit),
+                 "flags": _commit_flags(commit), "size": size}))
+            source = ", ".join(commit.pr_ids) if commit.pr_ids else m.R_COMMIT_SOURCE_NONE
+            lines.append(m.R_COMMIT_EVIDENCE.format_map(
+                {**vars(commit), "repo_path": commit.repo_path or repo, "source": source}))
             if commit.files:
-                lines.append("  " + ", ".join(commit.files[:5]))
+                lines.append("  " + ", ".join(commit.files[:limits.FILES_SHOWN]))
     return lines + [""]
 
 
 def _session_index(sessions: list[Session]) -> list[str]:
-    lines = ["### 完整会话索引",
-             "以下是证据留存索引，不是待选清单。缺少文字线索的项先由 agent 初筛；"
-             "无法辨认具体工作时不向用户提问。助手线索仅为自述，仍需核验。"]
+    lines = [m.R_H_SESSION_INDEX, m.R_SESSION_INDEX_FOOTER]
     for session in sessions:
-        detail = "已展开" if session.detailed else "摘要省略，可回查"
+        detail = m.R_SESSION_DETAIL_EXPANDED if session.detailed else m.R_SESSION_DETAIL_OMITTED
         hint, basis = session_index_hint(session)
-        signal = ("请求线索" if basis == "user_request" else "助手线索，未核验"
-                  if basis == "assistant_statement" else "需初筛，暂不列候选")
-        lines.append(f"- [{detail}；{signal}] {session.agent} · {Path(session.project).name} · "
-                     f"{session.start:%m-%d %H:%M}–{session.end:%m-%d %H:%M} · "
-                     f"id `{session.id}`" + (f" · {hint}" if hint else ""))
+        signal = (m.R_SESSION_SIGNAL_USER if basis == EventKind.USER_REQUEST
+                  else m.R_SESSION_SIGNAL_ASSISTANT if basis == EventKind.ASSISTANT_STATEMENT
+                  else m.R_SESSION_SIGNAL_SCREEN)
+        hint_suffix = m.R_SESSION_INDEX_HINT.format(hint=hint) if hint else ""
+        lines.append(m.R_SESSION_INDEX_LINE.format_map(
+            {**vars(session), "detail": detail, "signal": signal,
+             "project": Path(session.project).name, "hint": hint_suffix}))
         if session.source:
-            lines.append(f"  来源：`{session.source}`；完整事件及分片定位见结构化证据。")
+            lines.append(m.R_SESSION_INDEX_SOURCE.format_map(vars(session)))
     return lines + [""]
 
 
@@ -273,21 +272,24 @@ def _session_events(session: Session) -> list[str]:
     everything else is looked up in the structured evidence.
     """
     lines = []
-    requests = [e for e in session.events if e.kind == "user_request"]
-    if len(requests) > 4:
-        lines.append(f"- 用户请求省略 {len(requests) - 4} 条，见结构化证据。")
-        requests = requests[:2] + requests[-2:]
+    user_cap = limits.USER_HEAD + limits.USER_TAIL
+    requests = [e for e in session.events if e.kind == EventKind.USER_REQUEST]
+    if len(requests) > user_cap:
+        lines.append(m.R_H_EVENTS_USER_OMITTED.format(count=len(requests) - user_cap))
+        requests = requests[:limits.USER_HEAD] + requests[-limits.USER_TAIL:]
     for event in requests:
-        lines.append("- 用户请求：" + event_excerpt(event, 220))
-    for event in [e for e in session.events if e.kind == "assistant_statement"][-2:]:
-        lines.append("- 助手陈述（未独立核验）：" + event_excerpt(event))
-    calls = {e.call_id: e for e in session.events if e.kind == "tool_call" and e.call_id}
-    for event in [e for e in session.events if e.kind == "tool_result"][-3:]:
+        lines.append(m.R_EVENT_USER.format(excerpt=event_excerpt(event, limits.USER_REQUEST)))
+    for event in [e for e in session.events
+                  if e.kind == EventKind.ASSISTANT_STATEMENT][-limits.ASSISTANT_TAIL:]:
+        lines.append(m.R_EVENT_ASSISTANT.format(excerpt=event_excerpt(event)))
+    calls = {e.call_id: e for e in session.events
+             if e.kind == EventKind.TOOL_CALL and e.call_id}
+    for event in [e for e in session.events
+                  if e.kind == EventKind.TOOL_RESULT][-limits.TOOL_RESULT_TAIL:]:
         if event.call_id in calls:
-            lines.append("- 对应工具调用：" + event_excerpt(calls[event.call_id]))
-        lines.append("- 工具结果（输出摘录，需核对范围）：" + event_excerpt(event))
-    return lines + [f"- 共 {len(session.events)} 条原始事件；此处为摘录，"
-                    "中间决策及完整输出见结构化证据。"]
+            lines.append(m.R_EVENT_TOOL_CALL.format(excerpt=event_excerpt(calls[event.call_id])))
+        lines.append(m.R_EVENT_TOOL_RESULT.format(excerpt=event_excerpt(event)))
+    return lines + [m.R_EVENT_TOTAL.format(count=len(session.events))]
 
 
 def _session_detail(session: Session, single_day: bool) -> list[str]:
@@ -295,36 +297,44 @@ def _session_detail(session: Session, single_day: bool) -> list[str]:
     span = (f"{session.start:%H:%M}–{session.end:%H:%M}"
             if single_day and session.start.date() == session.end.date()
             else f"{session.start:%m-%d %H:%M}–{session.end:%m-%d %H:%M}")
-    dup = f" · ↻ 同开场白 {session.dup_n} 段" if session.dup_n else ""
-    lines = [f"### [{session.agent}] {project} · {span} · {session.steps} 步 · "
-             f"id {short_id(session.id)}{dup}"]
+    dup = m.R_SESSION_HEADER_DUP.format(count=session.dup_n) if session.dup_n else ""
+    lines = [m.R_SESSION_HEADER.format_map(
+        {**vars(session), "project": project, "span": span,
+         "short_id": short_id(session.id), "dup": dup})]
     if session.events:
         lines += _session_events(session)
     elif session.users:
         users = session.users
-        if len(users) > 4:  # Long sessions often pivot late: keep head and tail
-            users = users[:2] + [f"…（省略 {len(users) - 4} 条）"] + users[-2:]
-        lines.append("- 用户：" + " / ".join(users))
+        cap = limits.USER_HEAD + limits.USER_TAIL
+        if len(users) > cap:  # Long sessions often pivot late: keep head and tail
+            users = (users[:limits.USER_HEAD]
+                     + [m.R_SESSION_USER_OMITTED.format(count=len(users) - cap)]
+                     + users[-limits.USER_TAIL:])
+        lines.append(m.R_SESSION_USER_LINE.format(detail=" / ".join(users)))
     if session.concl and not session.events:
-        for text in session.concl[-2:]:
-            lines.append(f"- 助手陈述（未独立核验）：{text}")
+        for text in session.concl[-limits.ASSISTANT_TAIL:]:
+            lines.append(m.R_SESSION_ASSISTANT_LINE.format(text=text))
     if session.tools:
-        line = "- 动手：" + ", ".join(f"{n}×{v}" for n, v in session.tools.most_common(5))
+        tools = ", ".join(m.R_SESSION_TOOLS_PAIR.format(name=n, count=v)
+                          for n, v in session.tools.most_common(limits.TOOLS_SHOWN))
+        line = m.R_SESSION_TOOLS_LINE.format(tools=tools)
         rel = _rel(session.files, session.project)
         if rel:
-            line += "；涉及 " + ", ".join(rel)
+            line += m.R_SESSION_TOOLS_FILES.format(files=", ".join(rel))
         lines.append(line)
     if session.related:
-        links = "; ".join(f"{c.sha} {c.subject[:60]}" for c in session.related)
-        lines.append(f"- 可能相关提交：{links}")
+        links = "; ".join(m.R_SESSION_RELATED_PAIR.format(sha=c.sha, subject=c.subject[:60])
+                          for c in session.related)
+        lines.append(m.R_SESSION_RELATED.format(links=links))
     return lines + [""]
 
 
 def _sessions_section(sessions: list[Session], truncated: bool, single_day: bool) -> list[str]:
-    lines = [f"## B. Agent 会话（{len(sessions)} 段"
-             + ("，部分详细摘要省略，索引完整" if truncated else "") + "）"]
+    header = (m.R_H_SESSIONS_TRUNCATED if truncated else m.R_H_SESSIONS_BARE).format(
+        count=len(sessions))
+    lines = [header]
     if not sessions:
-        return lines + ["_无会话记录_"]
+        return lines + [m.R_SESSIONS_EMPTY]
     lines += _session_index(sessions)
     for session in sorted(sessions, key=lambda s: s.start):
         if session.detailed:
@@ -335,25 +345,19 @@ def _sessions_section(sessions: list[Session], truncated: bool, single_day: bool
 def _dirty_section(dirty: list[DirtyState], stale_days: int) -> list[str]:
     if not dirty:
         return []
-    lines = ["## C. 当前未提交改动（运行时快照）",
-             f"最近提交距今 ≥{stale_days} 天只表示仓库长期无提交；改动存在时长未知。"]
+    lines = [m.R_H_DIRTY, m.R_DIRTY_HINT.format(stale_days=stale_days)]
     for state in dirty:
         if state.age_days is None:
-            age, mark = "未知", ""
+            age, mark = m.R_DIRTY_AGE_UNKNOWN, ""
         else:
-            age = f"{state.age_days} 天前"
-            mark = "  长期无提交的仓库存在当前改动" if state.age_days >= stale_days else ""
-        lines.append(f"- [{state.repo}] {state.files} 个文件改动；最近一次提交 {age}{mark}")
+            age = m.R_DIRTY_AGE_DAYS.format(days=state.age_days)
+            mark = m.R_DIRTY_STALE_MARK if state.age_days >= stale_days else ""
+        lines.append(m.R_DIRTY_LINE.format(repo=state.repo, files=state.files, age=age, mark=mark))
     return lines + [""]
 
 
 def _writing_hint(period: str) -> list[str]:
-    return ["## D. 写稿提示",
-            "本包是自动采集结果，不代表用户已确认范围。"
-            "下一步按 SKILL.md 的阶段表和 references/interaction.md 初筛、确认工作事项，再分析。"
-            f"写{period}前按 references/writing.md 归纳与审稿，证据核对见 references/collection.md；"
-            "只写已选对象中由本证据包、关联原始记录或用户补充材料支持的事实。"
-            "先检查采集诊断和完整会话索引；助手陈述不能单独证明已验证或已合并。"]
+    return [m.R_H_WRITING, m.R_WRITING_BODY.format(period=period)]
 
 
 def render(report: Report) -> str:

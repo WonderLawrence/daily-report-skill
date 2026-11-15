@@ -15,8 +15,12 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 
+from . import limits
+from . import messages as m
 from .diagnostics import GitDiagnostics
+from .evidence import redact_text
 from .models import Commit, DirtyState, FetchResult, FetchStatus, Identity
+from .text import one_line
 from .timewindow import Period, parse_ts
 
 LOG_FORMAT = "%H%x1f%h%x1f%cd%x1f%ad%x1f%an <%ae>%x1f%s"
@@ -49,7 +53,7 @@ def author_regex(explicit: str | None, emails: list[str]) -> str | None:
         try:
             re.compile(pattern, re.I)
         except re.error as e:
-            raise ValueError(f"--author / author_emails 不是合法正则：{e}") from e
+            raise ValueError(m.AUTHOR_REGEX_INVALID.format(detail=e)) from e
     return pattern
 
 
@@ -66,33 +70,45 @@ def discover_repos(root: Path, depth: int = 2) -> list[Path]:
 
 
 # ---------------- Fetch ----------------
+def _failure_detail(label: str, result: subprocess.CompletedProcess) -> str:
+    """Preserve useful stderr before truncation; strip remote URLs and known secrets."""
+    error = result.stderr or ""
+    error = re.sub(r"[a-z][a-z0-9+.-]*://[^\s'\"<>]+", "[remote-url]", error, flags=re.I)
+    error = re.sub(r"[\w.+-]+@[^:\s]+:[^\s'\"<>]+", "[remote-url]", error)
+    error = redact_text(error)
+    lines = [line for line in error.splitlines() if line.strip()]
+    excerpt = one_line(" / ".join(lines[-limits.FETCH_FAILURE_LINES:]), limits.FETCH_FAILURE)
+    template = m.FETCH_DETAIL_WITH_EXCERPT if excerpt else m.FETCH_DETAIL_NO_EXCERPT
+    return template.format(label=label, code=result.returncode, excerpt=excerpt)
+
+
 def _fetch_one(repo: Path, enabled: bool, timeout: int, env: dict) -> FetchResult:
     """Refresh one repository's configured remotes; never merge into the working branch."""
     result = FetchResult(repo=repo.name, repo_path=str(repo))
     if not enabled:
-        result.status, result.detail = FetchStatus.SKIPPED, "已禁用 fetch，使用本地引用"
+        result.status, result.detail = FetchStatus.SKIPPED, m.FETCH_SKIPPED_DISABLED
         return result
     try:
         remotes = _git(repo, "remote", stdin=subprocess.DEVNULL, timeout=timeout, env=env)
         if remotes.returncode:
             result.status = FetchStatus.FAILED
-            result.detail = f"无法列出远程（退出码 {remotes.returncode}）"
+            result.detail = _failure_detail(m.FETCH_REMOTE_FAILED, remotes)
             return result
         result.remotes = remotes.stdout.splitlines()
         if not result.remotes:
-            result.status, result.detail = FetchStatus.NO_REMOTE, "未配置远程，使用本地记录"
+            result.status, result.detail = FetchStatus.NO_REMOTE, m.FETCH_NO_REMOTE
             return result
         fetched = _git(repo, "fetch", "--all", "--no-recurse-submodules",
                        stdin=subprocess.DEVNULL, timeout=timeout, env=env)
         if fetched.returncode:
             result.status = FetchStatus.FAILED
-            result.detail = f"fetch 失败（退出码 {fetched.returncode}）"
+            result.detail = _failure_detail(m.FETCH_FAIL_PREFIX, fetched)
         else:
-            result.status, result.detail = FetchStatus.OK, "fetch 成功，已按远程配置更新引用"
+            result.status, result.detail = FetchStatus.OK, m.FETCH_OK
     except subprocess.TimeoutExpired:
-        result.status, result.detail = FetchStatus.TIMEOUT, f"Git 同步操作超时（{timeout} 秒）"
+        result.status, result.detail = FetchStatus.TIMEOUT, m.FETCH_TIMEOUT.format(seconds=timeout)
     except (OSError, UnicodeError):
-        result.status, result.detail = FetchStatus.FAILED, "无法执行或读取 Git 同步操作"
+        result.status, result.detail = FetchStatus.FAILED, m.FETCH_EXEC_FAILED
     return result
 
 
@@ -100,7 +116,7 @@ def remote_urls(repo: Path, timeout: int) -> list[str]:
     """Configured fetch remote URLs; turning them into owner/repo is the github module's job."""
     result = _git(repo, "remote", "-v", timeout=timeout)
     if result.returncode:
-        raise OSError(f"无法读取仓库远程配置：{repo}")
+        raise OSError(m.FETCH_READ_REMOTE_FAILED.format(repo=repo))
     return sorted({parts[1] for line in result.stdout.splitlines()
                    if len(parts := line.split()) >= 3 and parts[2] == "(fetch)"})
 
@@ -114,8 +130,8 @@ def fetch_repos(repos: list[Path], enabled: bool, timeout: int,
         result.checked_at = datetime.now(timezone.utc).isoformat()
         if result.status in (FetchStatus.FAILED, FetchStatus.TIMEOUT):
             diag.fetch_failed += 1
-            print(f"[warn] {repo.name}: {result.detail}；继续读取本地记录，"
-                  "远程提交覆盖可能不完整", file=sys.stderr)
+            print(m.LOG_FETCH_WARN.format(name=repo.name, detail=result.detail),
+                  file=sys.stderr)
         elif result.status == FetchStatus.OK:
             diag.fetch_ok += 1
         else:
@@ -132,8 +148,7 @@ def _run_log(repo: Path, start, with_stats: bool) -> subprocess.CompletedProcess
     if result.returncode != 0 and "since-as-filter" in (result.stderr or ""):
         # Older Git versions lack --since-as-filter. Avoid --since here: its history
         # pruning can silently omit commits when committer dates are non-monotonic.
-        print(f"[note] {repo.name}: Git 不支持 --since-as-filter，改为遍历完整历史后过滤日期",
-              file=sys.stderr)
+        print(m.LOG_FETCH_UNSUPPORTED.format(name=repo.name), file=sys.stderr)
         result = _git(repo, *base, *tail)
     return result
 
@@ -166,7 +181,8 @@ def git_commits(repo: Path, period: Period, diag: GitDiagnostics | None = None,
     if result.returncode != 0:
         if diag is not None:
             diag.failed_files += 1
-        print(f"[warn] 无法读取仓库 {repo}: {(result.stderr or '').strip()}", file=sys.stderr)
+        print(m.LOG_FETCH_READ_WARN.format(repo=repo, detail=(result.stderr or '').strip()),
+              file=sys.stderr)
         return []
     if diag is not None:
         diag.ok_files += 1
@@ -277,12 +293,10 @@ def collect_dirty_state(repos: list[Path], configured: bool, explicit: bool,
     enabled = explicit or (configured and period_contains_now)
     if not enabled:
         if configured:
-            print("[note] 历史/未来日期范围忽略 config.dirty；当前工作区状态只在范围包含今天时自动采集",
-                  file=sys.stderr)
+            print(m.LOG_DIRTY_NOT_IN_WINDOW, file=sys.stderr)
         return [], False
     if explicit and not period_contains_now:
-        print("[warn] --dirty 采集的是运行时工作区状态，不代表所选历史/未来日期的状态",
-              file=sys.stderr)
+        print(m.LOG_DIRTY_FUTURE, file=sys.stderr)
     states = [state for repo in repos if (state := dirty_state(repo, now))]
     states.sort(key=lambda item: (item.age_days is None, -(item.age_days or 0)))
     return states, bool(repos)
@@ -290,21 +304,22 @@ def collect_dirty_state(repos: list[Path], configured: bool, explicit: bool,
 
 def print_identity_report(repos: list[Path], repos_root: Path, emails: list[str],
                           identity: Identity) -> None:
-    print(f"git user.name  : {identity.name}")
-    print(f"git user.email : {identity.email}")
-    print(f"author_emails  : {emails or '(空，回退到 git user.email)'}")
-    print(f"匹配正则       : {identity.author_re}")
-    print(f"仓库根         : {repos_root}  ({len(repos)} 个仓库)\n")
+    print(m.IDENTITY_USER_NAME.format(name=identity.name))
+    print(m.IDENTITY_USER_EMAIL.format(email=identity.email))
+    print(m.IDENTITY_EMAILS.format(emails=emails or m.IDENTITY_EMAILS_EMPTY))
+    print(m.IDENTITY_REGEX.format(regex=identity.author_re))
+    print(m.IDENTITY_REPOS_ROOT.format(root=repos_root, count=len(repos)) + "\n")
     for repo in repos:
         result = _git(repo, "log", "--exclude=refs/stash", "--all",
                       "--since=90 days ago", "--pretty=%an <%ae>")
         if result.returncode != 0:
-            print(f"[warn] 无法读取仓库 {repo}: {(result.stderr or '').strip()}", file=sys.stderr)
+            print(m.LOG_FETCH_READ_WARN.format(repo=repo, detail=(result.stderr or '').strip()),
+                  file=sys.stderr)
             continue
         counts = Counter(result.stdout.splitlines())
         if not counts:
             continue
         print(f"[{repo.name}]")
-        for who, count in counts.most_common(4):
-            mark = "  <- 匹配" if identity.matches_git_author(who) else ""
+        for who, count in counts.most_common(limits.IDENTITY_AUTHORS):
+            mark = m.IDENTITY_MATCH_MARK if identity.matches_git_author(who) else ""
             print(f"  {count:4d}  {who}{mark}")

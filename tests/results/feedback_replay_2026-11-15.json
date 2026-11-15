@@ -1,0 +1,95 @@
+{
+  "date": "2026-11-15",
+  "kind": "collector_script_regression_and_read_only_source_replay",
+  "validation": {
+    "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -q",
+    "tests": 169,
+    "result": "pass",
+    "elapsed_seconds": 13.051,
+    "skill_validator": "pass"
+  },
+  "covered": [
+    "Runtime injection blocks and multi-block approval envelopes are excluded while adjacent real requests survive.",
+    "Session relation markers require identical full substantive requests, excluding injections and acknowledgments.",
+    "Claude API request blobs supply no conversation evidence; actual malformed events remain diagnosed.",
+    "Session issues retain bounded source/line/type locators without capping error counters.",
+    "Full discovery commit messages survive serialization; selected details reuse them before local Git and GitHub git-object fallback.",
+    "Fallback validates SHA, retains local failure and records message provenance; no diff is prefetched.",
+    "CLI, Markdown and JSON expose complete/partial with PR, message and commit-list gap counts.",
+    "Fetch stderr is retained with bounded length after remote-URL and secret redaction."
+  ],
+  "source_replay": {
+    "report_date": "2026-11-12",
+    "sessions": 12,
+    "injected_user_requests_removed": {
+      "codex": 15,
+      "dsh": 9
+    },
+    "other_events_equal_to_original_snapshot": true,
+    "codex_dup_n_before": [
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8
+    ],
+    "codex_dup_n_after": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "claude": {
+      "scanned_files": 11,
+      "invalid_records_before": 628,
+      "invalid_records_after": 0,
+      "failed_files_before": 6,
+      "failed_files_after": 0,
+      "retained_events": 81,
+      "events_equal_to_original_snapshot": true
+    },
+    "selected_prs": {
+      "requested": 8,
+      "loaded": 8,
+      "pr_failures": 0,
+      "known_commits": 15,
+      "messages_recovered_from_saved_responses": 6,
+      "messages_without_replay_response": 2,
+      "status": "partial",
+      "method": "Saved commit responses projected to documented git-object sha/message fields; API calls stubbed."
+    }
+  },
+  "limitations": [
+    "No new writing or multi-turn behavioral evaluation; historical evaluation records remain unchanged.",
+    "Original reports and snapshots were read only; selected-PR replay output was written to a fresh temporary directory.",
+    "No live GitHub connectivity check. Missing replay responses do not imply remote unavailability.",
+    "Original mega-probex fetch failure cause remains unknown; stderr diagnostics improve subsequent runs."
+  ],
+  "tested_sha256": {
+    "scripts/daily_report/analysis.py": "fe552d6d5ec8eeaefba445ea0b29afc99d9b09a6f3e8d76f30014670b2a409a3",
+    "scripts/daily_report/diagnostics.py": "1d7c1dd045f318ca2acd4b2feecec56a5215d7aad59c7ac4270184df5dd63cb1",
+    "scripts/daily_report/github.py": "3448ac8fe98338acd2a1f168134c6de3c7e0e355cfe4b66c9d3a9740a04b5caf",
+    "scripts/daily_report/gitlog.py": "1793a36b41adfb14aedf318881b276d104856b8a664f267c3db7f888bf469e27",
+    "scripts/daily_report/models.py": "94b795a9e590c8eb08defcc404db351ccac24e0d59005d9b8b9cbe4366c0d85f",
+    "scripts/daily_report/pr_report.py": "2c4e846c2c34b542f41aea126446868c6c7d37cabbcc90508558a8a637dbfa80",
+    "scripts/daily_report/render.py": "64c30e37f7c718e1601c57fed86042af6a8028484c0b43535c068acfb13342b7",
+    "scripts/daily_report/session_events.py": "11d86610daa054ec2bc9388a88e17885b5cbf897fe7e43f18141c5580eee31f4",
+    "scripts/daily_report/sessions.py": "8e48b3506b254a2a2a9479df6f3ab220f84ddc7a8950fb20c1fe8e679bd602c5",
+    "scripts/daily_report/text.py": "5372acb474a0064a34801f8933857e8f1101a00801ecf66794f4dd851dcfb4b2",
+    "scripts/pr_details.py": "91b833ad443c11d99bce823a60d71c0a5c77db1389b3fa1f702da3e560718da8",
+    "tests/helpers.py": "336bf3c747a6abacaf845356f4578e9828d391002c6c976eed310cdbf3bbd275",
+    "tests/test_evidence.py": "4e2a8f056f75196048f033a243a41c221c306e46e7d1462615d1fa960dff5b57",
+    "tests/test_fetch.py": "10856919bbbd05bfaf011eb0ad203c510435d14868cfc6800826ef7ab85477f4",
+    "tests/test_git.py": "b9b533925a78ad1ee32bf7e9b88a00588529fef90ba8e6654cdd83ab40e12932",
+    "tests/test_prs.py": "5a6cc2cee3021dc05110350d78d7a9ab35dd8d28c6a194eea3e5d679f5d40879",
+    "tests/test_render.py": "72a9c586d029bf51c0a5adf71ee66d06a3a0a7521c7499524e38f295ecfc83b6",
+    "tests/test_sessions.py": "9b7df69d4af6955f152dca2719f83cc06c8c370eb230ec270a26029d1e20954d"
+  }
+}

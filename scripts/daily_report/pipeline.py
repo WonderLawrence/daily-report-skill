@@ -12,6 +12,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from . import messages as m
 from .analysis import collapse_duplicates, pair_reverts
 from .diagnostics import CoverageStatus, GitDiagnostics, PullRequestDiagnostics, SourceDiagnostics
 from .github import discover_pull_requests
@@ -37,11 +38,9 @@ def _warn_alias_identities(alias_hits: dict[str, int], name: str) -> None:
     """Commits sharing user.name but with an unconfigured email: the real missing identity signal."""
     if not alias_hits:
         return
-    detail = ", ".join(f"{who} ({count} 个提交)" for who, count in
-                       sorted(alias_hits.items(), key=lambda item: -item[1]))
-    print(f"[warn] 有和 {name} 同名、但邮箱没配的提交：{detail}\n"
-          f"       如果这些是你（换过邮箱），把它们加进 config.author_emails 后重跑；"
-          f"如果是重名同事，忽略即可", file=sys.stderr)
+    detail = ", ".join(m.LOG_ALIAS_ENTRY.format(who=who, count=count)
+                       for who, count in sorted(alias_hits.items(), key=lambda item: -item[1]))
+    print(m.LOG_ALIAS_IDENTITIES.format(name=name, detail=detail), file=sys.stderr)
 
 
 def _count_local_only(settings: Settings, found: set[str], diag: GitDiagnostics) -> None:
@@ -53,8 +52,7 @@ def _count_local_only(settings: Settings, found: set[str], diag: GitDiagnostics)
     diag.local_commits = len(shas)
     diag.local_unassociated = len(shas - found)
     if diag.local_unassociated:
-        print(f"[note] 本地有 {diag.local_unassociated} 条本人提交未在本次 PR 检索结果中找到关联，未纳入证据；"
-              "如果其中有要写的工作，用会话记录或你自己的说明补充", file=sys.stderr)
+        print(m.LOG_LOCAL_UNASSOCIATED.format(count=diag.local_unassociated), file=sys.stderr)
 
 
 def collect_git(settings: Settings) -> GitEvidence:
@@ -67,15 +65,14 @@ def collect_git(settings: Settings) -> GitEvidence:
         enabled=settings.github.enabled, timeout=settings.github.timeout,
         max_queries=settings.github.max_queries)
     if pr_diagnostics.status in (CoverageStatus.PARTIAL, CoverageStatus.UNAVAILABLE):
-        print("[warn] PR 覆盖不完整；本期 Git 证据可能缺少工作，详见采集诊断", file=sys.stderr)
+        print(m.LOG_PR_COVERAGE_PARTIAL, file=sys.stderr)
 
     diag.commits_without_local_copy = resolve_commits(commits)
     pair_reverts(commits)
     shown, extras = collapse_duplicates(commits)
     diag.commits = len(shown)
     if extras:
-        print(f"[note] 折叠了 {extras} 个 patch-id 相同的 rebase/cherry-pick 副本，"
-              f"写报告时按同一事项处理", file=sys.stderr)
+        print(m.LOG_PATCH_ID_COLLAPSED.format(count=extras), file=sys.stderr)
     _count_local_only(settings, {commit.full_sha for commit in commits}, diag)
     return GitEvidence(fetch_results, pull_requests, shown, extras, diag, pr_diagnostics)
 

@@ -10,6 +10,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import messages as m
 from .config import load_config, validate_config
 from .github import repo_index
 from .gitlog import author_regex, discover_repos, git_config_value
@@ -56,10 +57,11 @@ class OutputOptions:
 
     path: Path | None = None
     to_stdout: bool = False
-    force: bool = False
+    overwrite: bool = False
     redact: bool = True
     keep: int = 30
     reports_dir: Path = Path()
+    json_output: bool = False
 
     @property
     def evidence_dir(self) -> Path:
@@ -107,16 +109,16 @@ def _resolve_scope(args, cfg: dict, git_enabled: bool) -> tuple[list[Path], list
     """--only-repo / only_repos is a strict scope; --repo only appends. They are exclusive."""
     only = args.only_repo if args.only_repo is not None else cfg["only_repos"]
     if only and args.repo:
-        raise ValueError("--repo 不能与 only_repos 配置同时使用；请用 --only-repo 指定完整范围")
+        raise ValueError(m.CLI_ERR_REPO_CONFLICT)
     roots = list(dict.fromkeys(Path(p).expanduser().resolve() for p in only)) if only else None
     for path in roots or []:
         if not path.is_dir():
-            raise ValueError(f"关注项目路径不存在或不是目录：{path}")
+            raise ValueError(m.CLI_ERR_ONLY_REPO_NOT_DIR.format(path=path))
         if git_enabled:
             result = subprocess.run(["git", "-C", str(path), "rev-parse", "--show-toplevel"],
                                     capture_output=True, text=True)
             if result.returncode or Path(result.stdout.strip()).resolve() != path:
-                raise ValueError(f"--only-repo / only_repos 必须指向仓库根目录：{path}")
+                raise ValueError(m.CLI_ERR_ONLY_REPO_NOT_REPO.format(path=path))
     if not git_enabled:
         return [], roots
     repos = roots if roots is not None else (
@@ -128,27 +130,27 @@ def _resolve_scope(args, cfg: dict, git_enabled: bool) -> tuple[list[Path], list
 def resolve_settings(args) -> Settings:
     """Merge arguments and configuration; unusable values raise ValueError for exit code 2."""
     if args.days is not None and args.days < 1:
-        raise ValueError("--days 必须大于等于 1")
+        raise ValueError(m.CLI_ERR_DAYS_MIN)
     if (args.week or args.last_week) and (args.date or args.days is not None):
-        raise ValueError("--week / --last-week 不能和 --date / --days 同时使用")
+        raise ValueError(m.CLI_ERR_WEEK_CONFLICT)
 
     config_path = Path(args.config).expanduser()
     if not config_path.exists():
-        print(f"[warn] 配置文件不存在，使用默认值：{config_path}", file=sys.stderr)
+        print(m.CFG_WARN_MISSING.format(path=config_path), file=sys.stderr)
     cfg = load_config(config_path)
     errors = validate_config(cfg)
     if errors:
-        raise ValueError("配置无效：" + "；".join(errors))
+        raise ValueError(m.CONFIG_INVALID.format(details="；".join(errors)))
 
     limit = _pick(args.max_sessions, cfg["max_sessions"])
     if limit < 1:
-        raise ValueError("--max-sessions / config.max_sessions 必须大于等于 1")
+        raise ValueError(m.CLI_ERR_MAX_SESSIONS_MIN)
     keep = _pick(args.keep, int(cfg.get("evidence_keep", 30)))
     if keep < 0:
-        raise ValueError("--keep 必须大于等于 0")
+        raise ValueError(m.CLI_ERR_KEEP_MIN)
     fetch_timeout = _pick(args.fetch_timeout, cfg["fetch_timeout_seconds"])
     if fetch_timeout < 1:
-        raise ValueError("--fetch-timeout 必须大于等于 1")
+        raise ValueError(m.CLI_ERR_FETCH_TIMEOUT_MIN)
 
     tz = timezone_from_offset(float(cfg["utc_offset_hours"]))
     period = resolve_period(args.date, 1 if args.days is None else args.days, tz,
@@ -162,7 +164,7 @@ def resolve_settings(args) -> Settings:
     sources = cfg.get("sources", {})
     git_enabled = not args.no_git and sources.get("git", True)
     if git_enabled and not shutil.which("git"):
-        raise MissingGit("找不到 git 命令，请确认已安装并在 PATH 中")
+        raise MissingGit(m.MISSING_GIT)
     repos, project_roots = _resolve_scope(args, cfg, git_enabled)
     fetch = _pick(args.fetch, cfg["fetch"])
     github_timeout = cfg["github_timeout_seconds"]
@@ -180,9 +182,9 @@ def resolve_settings(args) -> Settings:
             frozenset() if args.no_sessions else
             frozenset(name for name in SESSION_NAMES if sources.get(name, True)), limit),
         output=OutputOptions(
-            Path(args.out).expanduser() if args.out else None, args.to_stdout, args.force,
+            Path(args.out).expanduser() if args.out else None, args.to_stdout, args.overwrite,
             (not args.no_redact) and bool(cfg.get("redact", True)), keep,
-            Path(cfg["reports_dir"]).expanduser()),
+            Path(cfg["reports_dir"]).expanduser(), args.json_output),
         dirty_configured=bool(cfg.get("dirty")), dirty_explicit=args.dirty,
         stale_days=int(cfg.get("stale_days", 7)),
-        period_word="周报" if args.week or args.last_week else None)
+        period_word=m.R_PERIOD_WEEKLY if args.week or args.last_week else None)

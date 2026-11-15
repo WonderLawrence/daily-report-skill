@@ -41,6 +41,31 @@ class Identity:
         return bool(self.name) and self.name.lower() in who.lower()
 
 
+class EventKind:
+    """How one Event relates to the agent's conversation; the values are the on-disk form.
+
+    User requests state intent; assistant statements are self-reported; a tool call and its
+    result only mean something together with the exit status. Writers set Event.kind to one
+    of these; readers compare to the constant, never to the literal string.
+    """
+
+    USER_REQUEST = "user_request"
+    ASSISTANT_STATEMENT = "assistant_statement"
+    TOOL_CALL = "tool_call"
+    TOOL_RESULT = "tool_result"
+
+
+class ArtifactKind:
+    """What a saved evidence snapshot is; the values appear in CLI receipts and reader output.
+
+    Written by `collect.py` / `pr_details.py` into their JSON receipts; read by
+    `evidence_reader.artifact_kind` to decide which model each list belongs to.
+    """
+
+    COLLECTION = "collection"
+    PR_DETAILS = "pr_details"
+
+
 @dataclass
 class Event:
     """One retained record from a session file.
@@ -49,7 +74,7 @@ class Event:
     stands in for another.
     """
 
-    kind: str                       # user_request / assistant_statement / tool_call / tool_result
+    kind: str                       # One of EventKind's values
     text: str
     call_id: str | int | None = None
     at: datetime | None = None      # Event time, inside the collection window
@@ -84,6 +109,8 @@ class Commit:
     reverted_by: str | None = None      # What reverted this commit
     copies: int = 0                     # rebase/cherry-pick copies with the same patch id
     pr_ids: list[str] = field(default_factory=list)   # Associated PRs; there may be several
+    message: str | None = None      # Full message already supplied by the PR commits API
+    message_retrieved_at: str | None = None
 
     @property
     def local_available(self) -> bool:
@@ -130,6 +157,8 @@ class CommitRef:
     authored: str
     author: str
     subject: str
+    message: str | None = None
+    message_retrieved_at: str | None = None
 
 
 class Involvement:
@@ -164,26 +193,36 @@ class PullRequest:
     retrieved_at: str
     involvement: str = Involvement.NO_PERIOD_COMMITS
     associated_commits: list[CommitRef] = field(default_factory=list)
+    commit_list_capped: bool = False
 
 
 class MessageStatus:
-    """Whether a PR commit's message could be read from the local repository."""
+    """Whether a PR commit's message is available from any supported source."""
 
     OK = "ok"
     FAILED = "failed"
 
 
+class MessageSource:
+    """Which source yielded the commit message; the values are the on-disk form."""
+
+    GITHUB_PR_COMMITS = "github_pr_commits"   # Already present on the PR commit listing
+    LOCAL_GIT = "local_git"                   # Resolved from the local repository
+    GITHUB_GIT_COMMIT = "github_git_commit"   # Fallback: GitHub git-database object
+
+
 @dataclass
 class PeriodCommit(CommitRef):
-    """A CommitRef extended with the commit message read via `git show`.
+    """A CommitRef extended with message retrieval status and provenance.
 
     Inheriting keeps the reference fields in one place and preserves their on-disk order:
     the parent's fields come first, the message fields after.
     """
 
     message_status: str = MessageStatus.FAILED
-    message: str = ""
+    message_source: str = ""
     message_error: str = ""
+    local_message_error: str = ""   # Preserved even if GitHub recovers the message
 
 
 @dataclass
@@ -201,6 +240,8 @@ class PullRequestDetails:
     closed_at: str | None
     updated_at: str | None
     head_sha_now: str | None
+    involvement: str = Involvement.NO_PERIOD_COMMITS
+    commit_list_capped: bool = False
     period_commits: list[PeriodCommit] = field(default_factory=list)
     limitations: list[str] = field(default_factory=list)
 
@@ -226,6 +267,29 @@ class FetchFailure:
     error: str
 
 
+class DetailsStatus:
+    """Whether a pr-details run covered everything it was asked for.
+
+    `complete` means nothing — not that the PRs themselves represent full coverage of the
+    period, only that this run's queries finished without gaps.
+    """
+
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+
+
+@dataclass
+class DetailsSummary:
+    """Counters for a pr-details run; field order is the on-disk key order under `summary`."""
+
+    requested_prs: int = 0
+    loaded_prs: int = 0
+    failed_prs: int = 0
+    commit_messages: int = 0
+    failed_commit_messages: int = 0
+    incomplete_commit_lists: int = 0
+
+
 @dataclass
 class DetailsReport:
     """The result of one pr-details run, mirroring Report on the collection side."""
@@ -235,9 +299,29 @@ class DetailsReport:
     details: list[PullRequestDetails] = field(default_factory=list)
     failures: list[FetchFailure] = field(default_factory=list)
 
+    @property
+    def summary(self) -> DetailsSummary:
+        messages = [commit for pr in self.details for commit in pr.period_commits]
+        return DetailsSummary(
+            requested_prs=len(self.selected), loaded_prs=len(self.details),
+            failed_prs=len(self.failures), commit_messages=len(messages),
+            failed_commit_messages=sum(c.message_status != MessageStatus.OK for c in messages),
+            incomplete_commit_lists=sum(pr.commit_list_capped or pr.involvement in
+                                        (Involvement.FAILED, Involvement.UNQUERIED)
+                                        for pr in self.details))
+
+    @property
+    def status(self) -> str:
+        summary = self.summary
+        partial = (summary.loaded_prs != summary.requested_prs
+                   or summary.failed_prs or summary.failed_commit_messages
+                   or summary.incomplete_commit_lists)
+        return DetailsStatus.PARTIAL if partial else DetailsStatus.COMPLETE
+
     def as_evidence(self, generated_at: str) -> dict:
         """Shape of the pr-details JSON; this key order is the order in the file."""
         return {"schema_version": 1, "generated_at": generated_at,
+                "status": self.status, "summary": self.summary,
                 "source_evidence": str(self.snapshot.path), "start": self.snapshot.start,
                 "end_exclusive": self.snapshot.end_exclusive, "selected_prs": self.selected,
                 "pull_requests": self.details, "failures": self.failures}

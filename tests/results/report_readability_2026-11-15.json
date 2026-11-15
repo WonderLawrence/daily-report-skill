@@ -1,0 +1,1518 @@
+{
+  "date": "2026-11-15",
+  "purpose": "改进日报可读性：先说明可理解的变化，选择正文细节，分清各项状态，保留事实与验证边界。",
+  "model": {
+    "selection": "inherited session default; no model or effort override",
+    "exact_runtime_model_id": null
+  },
+  "method": {
+    "generation": "每个案例、每轮均为新的独立 agent，fork_turns=none；仅提供原始请求、上下文、证据、日期和 skill 入口，不提供 criteria 或预期答案。",
+    "review": "主 agent 阅读实际回复，复述变化和状态，再对照原始证据及固定 criteria 逐项评审；不是外部人工盲评。",
+    "isolation": "不同临时输出目录；指令限制为输入与 skill 入口链接资源，不访问真实报告、其他评估目录或网络。此处不是对读取范围作额外操作系统级隔离。",
+    "tool_trace": "audit 是写稿 agent 自报的读写与工具摘要，非平台原始调用日志；原文已内嵌保存，不依赖临时文件长期存在。",
+    "criteria_supplied_to_writers": false,
+    "character_count_role": "仅检查 brief 案例用户明确的 100 字限制；不以长度或关键词单独评价可读性。",
+    "semantic_criterion_note": "原 failed_then_scoped_pass 的“相关 3 项测试通过”按准确限定验证集合评审；新版写作规则允许省略不影响判断的数量，不能省略测试范围。"
+  },
+  "inputs": {
+    "dense_selected_work": {
+      "fixture": "tests/fixtures/report_readability.json",
+      "criteria": [
+        "首句让读者理解每个主题的工作对象和变化；过滤器主题说明可以按表配置，不能只列选项改名和实现名。",
+        "解释首写位置记录如何让旧快照跳过之后才出现的数据，不要求读者自行串联 key、index、扫描等词。",
+        "区分 #32 本期只补测试且已合并、#33 后续优化已提交未合并；不能把整个索引重构算成本期实现，不能把 #33 测试写成已通过。",
+        "保留旧数据需重写后生效、未命中查询的 I/O 与延迟影响未测量，以及 #31 只有相关测试通过的范围。",
+        "不将 #31 后续合并倒填为当天合并；#34 保留已提交尚未合并，不暗示评审已通过或只剩合并动作。",
+        "cli-util 迁移讲清直接依赖上游、保留自定义日志行为、处理分配器依赖冲突；不补写量化收益或未证实的性能提升。",
+        "实现、验证、生效条件和多项状态有清楚层次；不把全部细节压入长句，不要求删除所有术语，也不以字符数单独判定。",
+        "正常覆盖所选工作，直接回复；不重新选择、不采集、不把测试材料落盘为正式日报。"
+      ],
+      "input": {
+        "date": "2026-10-16",
+        "request": "根据下面已选定事项的完整材料写今天的日报，直接回复。",
+        "context": "以下 PR 都是本人工作。对象选择已完成，没有额外文档材料；材料中的本期指 2026-10-16。",
+        "evidence": [
+          {
+            "id": "P31",
+            "kind": "pr_description",
+            "pr": "acme/store#31",
+            "text": "过滤器配置：原来各表沿用全局选项，本 PR 增加按表覆盖，允许交易哈希表单独启用 optimize_filters。显式表配置优先于默认值。选项作用于新生成的数据文件；旧 SST 要经 compaction 重写才改变 filter。"
+          },
+          {
+            "id": "C31",
+            "kind": "commit",
+            "at": "2026-10-16T10:20:00+08:00",
+            "pr": "acme/store#31",
+            "text": "补齐 table_options.opt_filters 映射；配置、CLI、日志统一改名 optimize_filters；默认交易哈希表开启；补 table override / default precedence 测试，修正文档。"
+          },
+          {
+            "id": "T31",
+            "kind": "tool_call",
+            "call_id": "filter-tests",
+            "text": "运行配置单测、带 main-db-tx-lookups 特性的目标测试，以及 fmt 和 Clippy"
+          },
+          {
+            "id": "T32",
+            "kind": "tool_result",
+            "call_id": "filter-tests",
+            "text": "最终改名后：42 项配置测试、1 项 main-db-tx-lookups 目标测试通过；fmt、Clippy 退出 0。没有运行全量测试。"
+          },
+          {
+            "id": "N31",
+            "kind": "user_note",
+            "text": "#31 当天已提交，10 月 17 日才合并。未命中哈希查询的 I/O 和延迟影响还没有测量。"
+          },
+          {
+            "id": "P32",
+            "kind": "pr_description",
+            "pr": "acme/node#32",
+            "text": "实时状态索引重构的实现此前已完成。本期仅补一条回归测试：缺少字节码时不能修改共享索引。"
+          },
+          {
+            "id": "C32",
+            "kind": "commit",
+            "at": "2026-10-16T11:00:00+08:00",
+            "pr": "acme/node#32",
+            "text": "增加 missing bytecode 时不改变 shared index 的回归测试。PR 当天合并。"
+          },
+          {
+            "id": "C33",
+            "kind": "commit",
+            "at": "2026-10-16T14:00:00+08:00",
+            "pr": "acme/node#33",
+            "text": "在 key 索引中记录 first_write_index，旧快照访问之后才首次写入的 key 时直接返回无变更，不再扫描条目。把依赖内部结构的断言改为通过公开接口检查账户创建、删除前后的快照可见性。本期已提交、尚未合并，未提供本项测试运行结果。"
+          },
+          {
+            "id": "P34",
+            "kind": "pr_description",
+            "pr": "acme/node#34",
+            "text": "cli-util 迁移目标是停止维护本地 fork，直接依赖上游 cli-util v2.3.0。保留项目定制的 panic 日志处理，SIGSEGV handler 仍先安装；上游 jemalloc 0.6 与工作区 0.7 都声明 links=jemalloc，不能同时启用。"
+          },
+          {
+            "id": "C34",
+            "kind": "commit",
+            "at": "2026-10-16T16:00:00+08:00",
+            "pr": "acme/node#34",
+            "text": "移除本地 cli-util 成员与 patch；panic hook 迁往 acme-utils，保留安装顺序；共享 allocator 支持移至 acme-utils，各二进制保留 global_allocator 声明，避开不兼容依赖。当天已提交，尚未合并。没有量化维护成本或运行性能变化。"
+          }
+        ]
+      }
+    },
+    "brief_without_motive": {
+      "fixture": "tests/fixtures/report_readability.json",
+      "criteria": [
+        "在 100 字内清楚说明快照索引字段的重命名与引用调整，不通过缩写或拼接名词压缩。",
+        "保留已本地提交、合并状态未知，以及只通过相关单测且无全量重跑的边界。",
+        "不编造重命名动机，不写修复查询错误、提升性能或其他未提供的收益。",
+        "直接交付条目，不重复确认范围、补问材料或运行采集。"
+      ],
+      "input": {
+        "date": "2026-10-16",
+        "request": "把这项完整记录写成不超过 100 字的日报条目，直接回复。",
+        "evidence": [
+          {
+            "id": "C41",
+            "kind": "commit",
+            "text": "acme-store：将快照索引字段 startOffset 重命名为 firstWriteIndex，并同步调整读取引用。已本地提交，未提供重命名原因、收益或合并状态。"
+          },
+          {
+            "id": "T41",
+            "kind": "tool_call",
+            "call_id": "rename-tests",
+            "text": "仅运行快照索引字段命名迁移的 3 项单测"
+          },
+          {
+            "id": "T42",
+            "kind": "tool_result",
+            "call_id": "rename-tests",
+            "text": "3 passed，退出 0；没有全量重跑记录。"
+          }
+        ]
+      }
+    },
+    "provided_evidence_custom_format": {
+      "fixture": "tests/fixtures/report_cases.json",
+      "criteria": [
+        "基于所给材料直接写稿，不运行采集器、不询问配置或默认落盘路径",
+        "用户已提供完整材料，不再追问范围外文档产出",
+        "遵循用户指定的两列表格并直接回复，不套用默认主题章节",
+        "完整保留长技术名称，不为默认 15 字标题限制截断名称",
+        "写明本地提交、未联调和待确认兼容性要求，不压缩成已验证"
+      ],
+      "input": {
+        "date": "2026-10-16",
+        "request": "以下是完整证据。直接在回复中给出“工作 / 当前状态”两列表格，完整保留 TransactionValidationWorkerCompatibilityAdapter 名称。",
+        "evidence": [
+          {
+            "id": "C8",
+            "kind": "commit",
+            "repo": "acme-node",
+            "at": "10:00",
+            "text": "refactor: 将 TransactionValidationWorkerCompatibilityAdapter 迁移到适配层"
+          },
+          {
+            "id": "S7",
+            "kind": "assistant_statement",
+            "at": "11:00",
+            "text": "迁移已本地提交，尚未联调，等待接口负责人确认兼容性要求。"
+          }
+        ]
+      }
+    },
+    "failed_then_scoped_pass": {
+      "fixture": "tests/fixtures/report_cases.json",
+      "criteria": [
+        "说明修正邮箱匹配且相关 3 项测试通过",
+        "不能把局部通过说成全量通过",
+        "全量测试先前失败，未见修复后全量重跑证据",
+        "助手最后一句不能覆盖工具输出的范围限制"
+      ],
+      "input": {
+        "date": "2026-10-16",
+        "request": "根据这些证据写今天的日报。",
+        "evidence": [
+          {
+            "id": "T1",
+            "kind": "tool_call",
+            "call_id": "a",
+            "at": "10:00",
+            "text": "python3 -m unittest discover -s tests"
+          },
+          {
+            "id": "T2",
+            "kind": "tool_result",
+            "call_id": "a",
+            "at": "10:05",
+            "text": "FAILED (failures=2), exit_code=1"
+          },
+          {
+            "id": "C7",
+            "kind": "commit",
+            "repo": "acme-tool",
+            "at": "11:00",
+            "text": "fix: 修正邮箱匹配"
+          },
+          {
+            "id": "T3",
+            "kind": "tool_call",
+            "call_id": "b",
+            "at": "11:10",
+            "text": "python3 -m unittest test_author"
+          },
+          {
+            "id": "T4",
+            "kind": "tool_result",
+            "call_id": "b",
+            "at": "11:11",
+            "text": "Ran 3 tests; OK; exit_code=0"
+          },
+          {
+            "id": "S6",
+            "kind": "assistant_statement",
+            "at": "11:15",
+            "text": "修复完成，测试都通过了。"
+          }
+        ]
+      }
+    }
+  },
+  "rounds": [
+    {
+      "id": "initial",
+      "tested_sha256": {
+        "SKILL.md": "410ba653ee31622b74222c2cc9adabeae048e9926df515d854528b41e0cc1fe6",
+        "README.md": "a5b3284d9ac7bd158326d8c47899ec2dabecc79164aada90e29996d785ecb59d",
+        "references/writing.md": "534c995fb07b5852c36c1a67806ef956150b2f9280fc9f3b1495dcacbeb0af23",
+        "references/collection.md": "671e05f735340b587c34e6c4581c1d9084d005713afbfb20618ffac147baafd0",
+        "examples/readability.md": "ef39c0fd2969e000b68777fb29004d0f73dd067ecc3299209716f93883f68f3c",
+        "examples/2026-10-16.md": "fa13fffb6bd3d859aee68e43232be19fc0242638d6aafef12432a010466e6433",
+        "examples/2026-10-12~2026-10-18.md": "8e27bb1ba6cffb24e96fb5d660850d63b63cbb284e83350e5171329aa1f255c9",
+        "tests/fixtures/report_readability.json": "ccc8e6d0cc8208fbedc21cde0b3e0a9e42948b02476a13abba06d2c4a0dd1e7c",
+        "tests/fixtures/report_cases.json": "f71a90ab12b2e9ff93e98daaba598261d0c88fafdd60610e5736b6105a7418be"
+      },
+      "cases": [
+        {
+          "case_id": "dense_selected_work",
+          "agent": "/root/readability_dense",
+          "user_visible_response": "2026-10-16 工作日报\n\n1. **按表配置过滤器（store #31）**：补齐按表覆盖过滤器选项的配置映射，显式表配置优先于默认值，交易哈希表默认开启 `optimize_filters`。配置、CLI 和日志中的选项名称已统一，并补充优先级测试及文档。\n\n   配置单测、带 `main-db-tx-lookups` 特性的目标测试以及 fmt、Clippy 均通过，未运行全量测试。改动当天已提交，尚未合并。\n\n   新配置只影响新生成的数据文件，旧 SST 需经 compaction 重写后生效。未命中哈希查询的 I/O 和延迟影响尚未测量。\n\n2. **补充索引回归测试（node #32）**：在此前已完成的实时状态索引重构上，补充“缺少字节码时不能修改共享索引”的回归测试，PR 当天已合并。\n\n3. **减少旧快照查询扫描（node #33）**：旧快照访问在其之后才首次写入的 key 时，可直接返回“无变更”，无需扫描索引条目。将依赖内部结构的断言改为通过公开接口检查账户创建、删除前后的快照可见性。改动已提交，尚未合并；材料未提供本项测试运行结果。\n\n4. **迁移上游 cli-util（node #34）**：移除本地 cli-util fork，改为直接依赖上游 v2.3.0。定制 panic 日志处理迁入 acme-utils，SIGSEGV handler 仍先安装。\n\n   共享 allocator 支持也迁入 acme-utils，各二进制保留全局 allocator 声明，避开上游 jemalloc 0.6 与工作区 0.7 无法同时启用的冲突。改动已提交，尚未合并。\n",
+          "response_sha256": "8340281fff07beb71e158ed430d2a21e1a4fbd0edd0c1493c5d1bae7e6a06e5f",
+          "response_characters": 712,
+          "audit_self_reported": {
+            "report_date": "2026-10-16",
+            "read_files": [
+              "/Users/wanglang/Project/daily-report-skill/SKILL.md",
+              "/private/tmp/daily-report-readability-0215ls7a/dense_selected_work/input.json",
+              "/Users/wanglang/Project/daily-report-skill/references/collection.md",
+              "/Users/wanglang/Project/daily-report-skill/references/writing.md",
+              "/Users/wanglang/Project/daily-report-skill/examples/readability.md"
+            ],
+            "commands_and_tools": [
+              {
+                "tool": "functions.exec -> exec_command",
+                "command": "cat /Users/wanglang/Project/daily-report-skill/SKILL.md",
+                "purpose": "读取技能入口"
+              },
+              {
+                "tool": "functions.exec -> exec_command",
+                "command": "cat /private/tmp/daily-report-readability-0215ls7a/dense_selected_work/input.json",
+                "purpose": "读取完整用户输入"
+              },
+              {
+                "tool": "functions.exec -> exec_command",
+                "command": "cat /Users/wanglang/Project/daily-report-skill/references/collection.md",
+                "purpose": "核对已选证据规则，与写作规范并行读取"
+              },
+              {
+                "tool": "functions.exec -> exec_command",
+                "command": "cat /Users/wanglang/Project/daily-report-skill/references/writing.md",
+                "purpose": "读取归纳、写作和审稿规则"
+              },
+              {
+                "tool": "functions.exec -> exec_command",
+                "command": "cat /Users/wanglang/Project/daily-report-skill/examples/readability.md",
+                "purpose": "读取信息密集草稿改写示例，仅参考表达方式"
+              },
+              {
+                "tool": "functions.exec -> exec_command",
+                "command": "python3 heredoc",
+                "purpose": "保存 response.md 与 audit.json；校验每条映射句子存在于报告中"
+              }
+            ],
+            "modified_paths": [
+              "/private/tmp/daily-report-readability-0215ls7a/dense_selected_work/response.md",
+              "/private/tmp/daily-report-readability-0215ls7a/dense_selected_work/audit.json"
+            ],
+            "sentence_evidence_map": [
+              {
+                "sentence": "补齐按表覆盖过滤器选项的配置映射，显式表配置优先于默认值，交易哈希表默认开启 `optimize_filters`。",
+                "evidence_ids": [
+                  "P31",
+                  "C31"
+                ]
+              },
+              {
+                "sentence": "配置、CLI 和日志中的选项名称已统一，并补充优先级测试及文档。",
+                "evidence_ids": [
+                  "C31"
+                ]
+              },
+              {
+                "sentence": "配置单测、带 `main-db-tx-lookups` 特性的目标测试以及 fmt、Clippy 均通过，未运行全量测试。",
+                "evidence_ids": [
+                  "T31",
+                  "T32"
+                ]
+              },
+              {
+                "sentence": "改动当天已提交，尚未合并。",
+                "evidence_ids": [
+                  "N31"
+                ]
+              },
+              {
+                "sentence": "新配置只影响新生成的数据文件，旧 SST 需经 compaction 重写后生效。",
+                "evidence_ids": [
+                  "P31"
+                ]
+              },
+              {
+                "sentence": "未命中哈希查询的 I/O 和延迟影响尚未测量。",
+                "evidence_ids": [
+                  "N31"
+                ]
+              },
+              {
+                "sentence": "在此前已完成的实时状态索引重构上，补充“缺少字节码时不能修改共享索引”的回归测试，PR 当天已合并。",
+                "evidence_ids": [
+                  "P32",
+                  "C32"
+                ]
+              },
+              {
+                "sentence": "旧快照访问在其之后才首次写入的 key 时，可直接返回“无变更”，无需扫描索引条目。",
+                "evidence_ids": [
+                  "C33"
+                ]
+              },
+              {
+                "sentence": "将依赖内部结构的断言改为通过公开接口检查账户创建、删除前后的快照可见性。",
+                "evidence_ids": [
+                  "C33"
+                ]
+              },
+              {
+                "sentence": "改动已提交，尚未合并；材料未提供本项测试运行结果。",
+                "evidence_ids": [
+                  "C33"
+                ]
+              },
+              {
+                "sentence": "移除本地 cli-util fork，改为直接依赖上游 v2.3.0。",
+                "evidence_ids": [
+                  "P34",
+                  "C34"
+                ]
+              },
+              {
+                "sentence": "定制 panic 日志处理迁入 acme-utils，SIGSEGV handler 仍先安装。",
+                "evidence_ids": [
+                  "P34",
+                  "C34"
+                ]
+              },
+              {
+                "sentence": "共享 allocator 支持也迁入 acme-utils，各二进制保留全局 allocator 声明，避开上游 jemalloc 0.6 与工作区 0.7 无法同时启用的冲突。",
+                "evidence_ids": [
+                  "P34",
+                  "C34"
+                ]
+              },
+              {
+                "sentence": "改动已提交，尚未合并。",
+                "evidence_ids": [
+                  "C34"
+                ]
+              }
+            ],
+            "notes": [
+              "用户要求直接回复，未读取真实配置或保存到用户报告目录。",
+              "报告采用输入日期；#31 的 10 月 17 日合并未倒填为 10 月 16 日成果。",
+              "未读取其他评估目录、tests、历史反馈或真实用户报告；未联网；未修改工作区；未委派。",
+              "示例不作为事实证据；未将未测量的 I/O、延迟、维护成本或运行性能变化写成收益。"
+            ]
+          },
+          "additional_report_artifacts": {},
+          "reader_restatement": "过滤器可按表配置，本期提交未合并且仅相关检查通过，旧数据需重写、查询影响未测量；状态索引本期补的回归测试已合并，另一个旧快照跳过扫描的优化未合并、无测试结果；cli-util 改用上游，保留定制日志并处理分配器冲突，提交未合并。",
+          "criteria_review": [
+            {
+              "criterion": "首句让读者理解每个主题的工作对象和变化；过滤器主题说明可以按表配置，不能只列选项改名和实现名。",
+              "verdict": "pass",
+              "support_quote": "补齐按表覆盖过滤器选项的配置映射",
+              "review": "首项说明按表覆盖；其余主题分别交代补测试、旧快照跳过扫描与迁移上游。"
+            },
+            {
+              "criterion": "解释首写位置记录如何让旧快照跳过之后才出现的数据，不要求读者自行串联 key、index、扫描等词。",
+              "verdict": "pass",
+              "support_quote": "旧快照访问在其之后才首次写入的 key 时，可直接返回“无变更”，无需扫描索引条目。",
+              "review": "条件与行为连贯；省略具体索引字段名，没有要求读者从名字推导变化。"
+            },
+            {
+              "criterion": "区分 #32 本期只补测试且已合并、#33 后续优化已提交未合并；不能把整个索引重构算成本期实现，不能把 #33 测试写成已通过。",
+              "verdict": "pass",
+              "support_quote": "材料未提供本项测试运行结果",
+              "review": "#32 仅新增回归测试且已合并；#33 单列为未合并且没有运行结果，没有重复计入此前重构。"
+            },
+            {
+              "criterion": "保留旧数据需重写后生效、未命中查询的 I/O 与延迟影响未测量，以及 #31 只有相关测试通过的范围。",
+              "verdict": "pass",
+              "support_quote": "旧 SST 需经 compaction 重写后生效",
+              "review": "正文还保留未测量 I/O 和延迟、只通过配置及特性目标测试、未跑全量的边界。"
+            },
+            {
+              "criterion": "不将 #31 后续合并倒填为当天合并；#34 保留已提交尚未合并，不暗示评审已通过或只剩合并动作。",
+              "verdict": "pass",
+              "support_quote": "改动当天已提交，尚未合并",
+              "review": "#31 未倒填次日合并，#34 也只写提交未合并。"
+            },
+            {
+              "criterion": "cli-util 迁移讲清直接依赖上游、保留自定义日志行为、处理分配器依赖冲突；不补写量化收益或未证实的性能提升。",
+              "verdict": "pass",
+              "support_quote": "改为直接依赖上游 v2.3.0",
+              "review": "交代定制日志保留及 jemalloc 版本冲突；没有收益数值或性能承诺。"
+            },
+            {
+              "criterion": "实现、验证、生效条件和多项状态有清楚层次；不把全部细节压入长句，不要求删除所有术语，也不以字符数单独判定。",
+              "verdict": "pass",
+              "support_quote": "新配置只影响新生成的数据文件",
+              "review": "过滤器分为实现、验证/状态、生效条件/测量缺口；索引的两种进度分项，迁移也分段。"
+            },
+            {
+              "criterion": "正常覆盖所选工作，直接回复；不重新选择、不采集、不把测试材料落盘为正式日报。",
+              "verdict": "pass",
+              "support_quote": null,
+              "review": "四项工作均覆盖，直接回复且没有询问；audit 只报告读取允许的 skill 文件和输入，写 response.md/audit.json。"
+            }
+          ],
+          "verdict": "pass"
+        },
+        {
+          "case_id": "brief_without_motive",
+          "agent": "/root/readability_brief",
+          "user_visible_response": "acme-store：快照索引字段由 startOffset 更名为 firstWriteIndex，并同步更新读取引用。改动已本地提交。仅运行了字段命名迁移相关单测，均通过。\n",
+          "response_sha256": "b069581e5fb44901b73b2461b6dfcc5d85571140629b6f231d633e04b7118c1d",
+          "response_characters": 88,
+          "audit_self_reported": {
+            "date": "2026-10-16",
+            "read_files": [
+              "/private/tmp/daily-report-readability-0215ls7a/brief_without_motive/input.json",
+              "/Users/wanglang/Project/daily-report-skill/SKILL.md",
+              "/Users/wanglang/Project/daily-report-skill/references/writing.md",
+              "/Users/wanglang/Project/daily-report-skill/references/collection.md"
+            ],
+            "commands_and_tools": [
+              {
+                "tool": "exec_command",
+                "command": "cat /Users/wanglang/Project/daily-report-skill/SKILL.md",
+                "purpose": "读取技能入口与交付规则"
+              },
+              {
+                "tool": "exec_command",
+                "command": "cat /private/tmp/daily-report-readability-0215ls7a/brief_without_motive/input.json",
+                "purpose": "读取完整用户请求与证据"
+              },
+              {
+                "tool": "exec_command",
+                "command": "cat /Users/wanglang/Project/daily-report-skill/references/writing.md",
+                "purpose": "读取报告归纳、状态与写作规则"
+              },
+              {
+                "tool": "exec_command",
+                "command": "cat /Users/wanglang/Project/daily-report-skill/references/collection.md",
+                "purpose": "核对仅有提交和配对工具记录的证据含义"
+              },
+              {
+                "tool": "functions.exec",
+                "summary": "使用 JavaScript 计算初稿字符数；未读写文件"
+              },
+              {
+                "tool": "exec_command",
+                "command_summary": "python3 heredoc：检查改写后正文长度，将 response.md 与 audit.json 写入指定目录",
+                "purpose": "保存最终用户可见回复及审计产物"
+              }
+            ],
+            "modified_paths": [
+              "/private/tmp/daily-report-readability-0215ls7a/brief_without_motive/response.md",
+              "/private/tmp/daily-report-readability-0215ls7a/brief_without_motive/audit.json"
+            ],
+            "sentence_evidence_map": [
+              {
+                "sentence": "acme-store：快照索引字段由 startOffset 更名为 firstWriteIndex，并同步更新读取引用。",
+                "evidence_ids": [
+                  "C41"
+                ]
+              },
+              {
+                "sentence": "改动已本地提交。",
+                "evidence_ids": [
+                  "C41"
+                ]
+              },
+              {
+                "sentence": "仅运行了字段命名迁移相关单测，均通过。",
+                "evidence_ids": [
+                  "T41",
+                  "T42"
+                ],
+                "pairing": "call_id=rename-tests"
+              }
+            ],
+            "response_character_count": 88
+          },
+          "additional_report_artifacts": {},
+          "reader_restatement": "快照索引字段改名并同步引用，已本地提交，只通过相关单测；首次正文没有明确合并状态未知，复测补齐。",
+          "criteria_review": [
+            {
+              "criterion": "在 100 字内清楚说明快照索引字段的重命名与引用调整，不通过缩写或拼接名词压缩。",
+              "verdict": "pass",
+              "support_quote": "并同步更新读取引用",
+              "review": "88 个字符，改名、引用调整和状态分句，名称完整。"
+            },
+            {
+              "criterion": "保留已本地提交、合并状态未知，以及只通过相关单测且无全量重跑的边界。",
+              "verdict": "fail",
+              "support_quote": "改动已本地提交",
+              "review": "未明确交代材料中的合并状态未知，因此本条未通过；仅运行命名迁移相关单测的范围保留。"
+            },
+            {
+              "criterion": "不编造重命名动机，不写修复查询错误、提升性能或其他未提供的收益。",
+              "verdict": "pass",
+              "support_quote": "快照索引字段由 startOffset 更名为 firstWriteIndex",
+              "review": "只写有据动作，没有添加动机、修复效果或性能收益。"
+            },
+            {
+              "criterion": "直接交付条目，不重复确认范围、补问材料或运行采集。",
+              "verdict": "pass",
+              "support_quote": null,
+              "review": "直接提供一个条目；audit 未报告采集、配置读取、追问或另存正式日报。"
+            }
+          ],
+          "verdict": "fail"
+        },
+        {
+          "case_id": "provided_evidence_custom_format",
+          "agent": "/root/readability_names",
+          "user_visible_response": "| 工作 | 当前状态 |\n| --- | --- |\n| acme-node：将兼容适配组件 `TransactionValidationWorkerCompatibilityAdapter` 迁移到适配层。 | 已本地提交；据会话记录，尚未联调，等待接口负责人确认兼容性要求。 |\n",
+          "response_sha256": "79ab6037ace656d6b5f5c3352d2b98dd77964ae749b56cf8998173edb8732c12",
+          "response_characters": 142,
+          "audit_self_reported": {
+            "date": "2026-10-16",
+            "files_read": [
+              "/Users/wanglang/Project/daily-report-skill/SKILL.md",
+              "/private/tmp/daily-report-readability-0215ls7a/provided_evidence_custom_format/input.json",
+              "/Users/wanglang/Project/daily-report-skill/references/collection.md",
+              "/Users/wanglang/Project/daily-report-skill/references/writing.md"
+            ],
+            "commands_and_tools": [
+              {
+                "tool": "functions.exec / exec_command",
+                "summary": "并行执行 cat，读取 SKILL.md 与指定 input.json。"
+              },
+              {
+                "tool": "functions.exec / exec_command",
+                "summary": "并行执行 cat，读取 references/collection.md 与 references/writing.md。"
+              },
+              {
+                "tool": "functions.exec / exec_command",
+                "summary": "执行 python3 heredoc，将用户可见表格写入 response.md，并将本审计记录写入 audit.json。"
+              }
+            ],
+            "modified_paths": [
+              "/private/tmp/daily-report-readability-0215ls7a/provided_evidence_custom_format/response.md",
+              "/private/tmp/daily-report-readability-0215ls7a/provided_evidence_custom_format/audit.json"
+            ],
+            "sentence_evidence": [
+              {
+                "sentence": "acme-node：将兼容适配组件 TransactionValidationWorkerCompatibilityAdapter 迁移到适配层。",
+                "evidence_ids": [
+                  "C8"
+                ],
+                "basis": "提交材料明确给出仓库、完整名称以及迁移到适配层的变化；不补写动机或收益。"
+              },
+              {
+                "sentence": "已本地提交；据会话记录，尚未联调，等待接口负责人确认兼容性要求。",
+                "evidence_ids": [
+                  "C8",
+                  "S7"
+                ],
+                "basis": "C8 提供迁移提交证据；S7 补充本地提交、尚未联调与等待兼容性要求确认的状态。后两项显式归因于会话记录，不将助手自述当作验证通过的证明。"
+              }
+            ],
+            "scope_notes": [
+              "用户已提供完整证据并指定直接回复两列表格，因此不采集、不读取配置或真实用户报告。",
+              "只写一个有证据的工作项，完整保留用户指定名称。",
+              "审稿后将名称连接到兼容适配组件的作用，分列工作变化与当前状态，并将未联调和等待确认的状态归因于会话记录。",
+              "未联网、未读取 tests、历史反馈或其他评估目录，未修改工作区，未委派。"
+            ]
+          },
+          "additional_report_artifacts": {},
+          "reader_restatement": "指定组件迁移到适配层，本地提交、未联调，等待接口负责人确认兼容性要求。",
+          "criteria_review": [
+            {
+              "criterion": "基于所给材料直接写稿，不运行采集器、不询问配置或默认落盘路径",
+              "verdict": "pass",
+              "support_quote": "| 工作 | 当前状态 |",
+              "review": "直接提供表格；audit 未报告采集或询问配置、默认目录。"
+            },
+            {
+              "criterion": "用户已提供完整材料，不再追问范围外文档产出",
+              "verdict": "pass",
+              "support_quote": null,
+              "review": "回复未补问其他材料，audit 未报告另行询问。"
+            },
+            {
+              "criterion": "遵循用户指定的两列表格并直接回复，不套用默认主题章节",
+              "verdict": "pass",
+              "support_quote": "| 工作 | 当前状态 |",
+              "review": "恰为指定两列，没有默认章节或另存报告提示。"
+            },
+            {
+              "criterion": "完整保留长技术名称，不为默认 15 字标题限制截断名称",
+              "verdict": "pass",
+              "support_quote": "TransactionValidationWorkerCompatibilityAdapter",
+              "review": "名称完整，未受默认标题长度影响。"
+            },
+            {
+              "criterion": "写明本地提交、未联调和待确认兼容性要求，不压缩成已验证",
+              "verdict": "pass",
+              "support_quote": "已本地提交；据会话记录，尚未联调，等待接口负责人确认兼容性要求",
+              "review": "保留本地提交、未联调及外部确认状态，没有称已验证。"
+            }
+          ],
+          "verdict": "pass"
+        },
+        {
+          "case_id": "failed_then_scoped_pass",
+          "agent": "/root/readability_scope",
+          "user_visible_response": "2026-10-16 工作日报\n\n在 acme-tool 提交了邮箱匹配修复。\n\n修复后，作者相关测试已通过。此前全量测试存在失败，尚无全量复测通过的记录。\n\n已保存至 [2026-10-16.md](/private/tmp/daily-report-readability-0215ls7a/failed_then_scoped_pass/2026-10-16.md)。\n",
+          "response_sha256": "678ac3feae548851213e31892e5ac9fc62b62084aef66d6d07f02de02282c4c9",
+          "response_characters": 187,
+          "audit_self_reported": {
+            "date": "2026-10-16",
+            "read_files": [
+              "/Users/wanglang/Project/daily-report-skill/SKILL.md",
+              "/private/tmp/daily-report-readability-0215ls7a/failed_then_scoped_pass/input.json",
+              "/Users/wanglang/Project/daily-report-skill/references/writing.md",
+              "/Users/wanglang/Project/daily-report-skill/references/collection.md",
+              "/Users/wanglang/Project/daily-report-skill/README.md"
+            ],
+            "commands_and_tools": [
+              {
+                "tool": "functions.exec / exec_command",
+                "command": "cat /Users/wanglang/Project/daily-report-skill/SKILL.md",
+                "purpose": "读取指定 skill"
+              },
+              {
+                "tool": "functions.exec / exec_command",
+                "command": "cat /private/tmp/daily-report-readability-0215ls7a/failed_then_scoped_pass/input.json",
+                "purpose": "读取完整用户请求与所给证据"
+              },
+              {
+                "tool": "functions.exec / exec_command",
+                "command": "cat /Users/wanglang/Project/daily-report-skill/references/writing.md",
+                "purpose": "读取写作和状态判读规则"
+              },
+              {
+                "tool": "functions.exec / exec_command",
+                "command": "cat /Users/wanglang/Project/daily-report-skill/references/collection.md",
+                "purpose": "核对配对工具结果与证据边界"
+              },
+              {
+                "tool": "functions.exec / exec_command",
+                "command": "cat /Users/wanglang/Project/daily-report-skill/README.md",
+                "purpose": "核对默认交付规则；遵从隔离任务要求，将报告保存在指定临时目录"
+              },
+              {
+                "tool": "functions.exec / exec_command",
+                "command": "python3 - <<'PY' ... PY",
+                "purpose": "仅向指定临时目录写入日报、完整用户可见回复和审计记录"
+              }
+            ],
+            "modified_paths": [
+              "/private/tmp/daily-report-readability-0215ls7a/failed_then_scoped_pass/2026-10-16.md",
+              "/private/tmp/daily-report-readability-0215ls7a/failed_then_scoped_pass/response.md",
+              "/private/tmp/daily-report-readability-0215ls7a/failed_then_scoped_pass/audit.json"
+            ],
+            "sentence_evidence_map": [
+              {
+                "sentence": "在 acme-tool 提交了邮箱匹配修复。",
+                "evidence_ids": [
+                  "C7"
+                ]
+              },
+              {
+                "sentence": "修复后，作者相关测试已通过。",
+                "evidence_ids": [
+                  "C7",
+                  "T3",
+                  "T4"
+                ],
+                "reason": "C7 时间为 11:00；T3/T4 配对且晚于提交，只验证 test_author 范围。"
+              },
+              {
+                "sentence": "此前全量测试存在失败，尚无全量复测通过的记录。",
+                "evidence_ids": [
+                  "T1",
+                  "T2",
+                  "T3",
+                  "T4",
+                  "S6"
+                ],
+                "reason": "T1/T2 配对记录全量发现测试失败；后续 T3/T4 仅为局部测试通过，S6 助手自述不构成全量通过的验证。"
+              }
+            ],
+            "evidence_handling": {
+              "selected_scope": "仅根据输入文件所给日期、请求和证据写稿",
+              "assistant_statement": "S6 未作为完成或全量测试通过的独立证明",
+              "missing_confirmation": "无全量复测结果，也无合并状态证据",
+              "revision": "将初稿中的测试数量与命令省略，拆开提交动作、局部验证结果和全量验证缺口，保留验证范围。"
+            }
+          },
+          "additional_report_artifacts": {
+            "2026-10-16.md": "2026-10-16 工作日报\n\n在 acme-tool 提交了邮箱匹配修复。\n\n修复后，作者相关测试已通过。此前全量测试存在失败，尚无全量复测通过的记录。\n"
+          },
+          "reader_restatement": "邮箱匹配已修正，后续只证明作者相关测试通过；之前全量失败，没有后续全量通过依据。",
+          "criteria_review": [
+            {
+              "criterion": "说明修正邮箱匹配且相关 3 项测试通过",
+              "verdict": "pass",
+              "support_quote": "修复后，作者相关测试已通过",
+              "review": "写明邮箱匹配修复及作者相关测试通过。按写作规则，3 项的数量可省略，必须保留验证集合；原判据按此语义评审，未改动原 fixture。"
+            },
+            {
+              "criterion": "不能把局部通过说成全量通过",
+              "verdict": "pass",
+              "support_quote": "尚无全量复测通过的记录",
+              "review": "没有把相关测试通过扩大为全量通过。"
+            },
+            {
+              "criterion": "全量测试先前失败，未见修复后全量重跑证据",
+              "verdict": "pass",
+              "support_quote": "此前全量测试存在失败",
+              "review": "保留先前失败和缺少后续全量复测的限制。"
+            },
+            {
+              "criterion": "助手最后一句不能覆盖工具输出的范围限制",
+              "verdict": "pass",
+              "support_quote": "尚无全量复测通过的记录",
+              "review": "没有采信 S6 的泛化结论；audit 按配对工具记录及时间顺序核对。"
+            }
+          ],
+          "verdict": "pass"
+        }
+      ],
+      "passed": 3,
+      "total": 4
+    },
+    {
+      "id": "rerun",
+      "tested_sha256": {
+        "SKILL.md": "410ba653ee31622b74222c2cc9adabeae048e9926df515d854528b41e0cc1fe6",
+        "README.md": "a5b3284d9ac7bd158326d8c47899ec2dabecc79164aada90e29996d785ecb59d",
+        "references/writing.md": "57000f0d7f3c2e4136e1d6ac7961388518e0ef8049b8003368091eb261b0680d",
+        "references/collection.md": "671e05f735340b587c34e6c4581c1d9084d005713afbfb20618ffac147baafd0",
+        "examples/readability.md": "ef39c0fd2969e000b68777fb29004d0f73dd067ecc3299209716f93883f68f3c",
+        "examples/2026-10-16.md": "fa13fffb6bd3d859aee68e43232be19fc0242638d6aafef12432a010466e6433",
+        "examples/2026-10-12~2026-10-18.md": "8e27bb1ba6cffb24e96fb5d660850d63b63cbb284e83350e5171329aa1f255c9",
+        "tests/fixtures/report_readability.json": "ccc8e6d0cc8208fbedc21cde0b3e0a9e42948b02476a13abba06d2c4a0dd1e7c",
+        "tests/fixtures/report_cases.json": "f71a90ab12b2e9ff93e98daaba598261d0c88fafdd60610e5736b6105a7418be"
+      },
+      "cases": [
+        {
+          "case_id": "dense_selected_work",
+          "agent": "/root/readability_dense_v2",
+          "user_visible_response": "**2026-10-16 工作日报**\n\n1. **store：按表配置过滤器（#31）**\n\n   补齐过滤器选项的按表配置映射，并将配置、命令行和日志中的名称统一为 `optimize_filters`。交易哈希表默认开启该选项，显式表配置优先于默认值。\n\n   配置单测、交易哈希查询特性下的目标测试，以及格式和 Clippy 检查通过；未运行全量测试。该选项只影响新生成的数据文件，旧 SST 需经 compaction 重写后才生效。\n\n   改动当天已提交、尚未合并；未命中哈希查询的 I/O 和延迟影响尚未测量。\n\n2. **node：补充状态索引回归测试（#32）**\n\n   在此前已完成的实时状态索引重构上，本期只补充“缺少字节码时不得修改共享索引”的回归测试。测试改动当天已合并；材料未提供测试运行结果。\n\n3. **node：调整旧快照查询（#33）**\n\n   旧快照读取在其创建后才首次写入的 key 时，改为直接返回“无变更”，无需扫描条目。这通过在 key 索引中记录首次写入位置实现。\n\n   同时，将账户创建、删除前后的快照可见性断言改为通过公开接口检查。改动已提交，尚未合并；材料未提供测试运行结果。\n\n4. **node：迁移至上游 cli-util（#34）**\n\n   将 cli-util 改为直接依赖上游 v2.3.0，并移除本地 fork 和 patch。项目定制的 panic 日志处理迁至 acme-utils，仍保持先安装 SIGSEGV handler 的顺序。\n\n   上游 jemalloc 0.6 与工作区 0.7 不能同时启用。为避开这一依赖冲突，共享分配器支持移至 acme-utils，各二进制继续保留全局分配器声明。\n\n   改动当天已提交，尚未合并；材料未提供验证结果。\n",
+          "response_sha256": "496d0ea065962d1d3f5b439a8cbf52e6b76e4ddcee3529c8b62006b93c1dc2be",
+          "response_characters": 772,
+          "audit_self_reported": {
+            "input_path": "/private/tmp/daily-report-readability-0215ls7a/rerun/dense_selected_work/input.json",
+            "report_date": "2026-10-16",
+            "date_source": [
+              "input.date",
+              "input.context"
+            ],
+            "reads": [
+              "/private/tmp/daily-report-readability-0215ls7a/rerun/dense_selected_work/input.json",
+              "/Users/wanglang/Project/daily-report-skill/SKILL.md",
+              "/Users/wanglang/Project/daily-report-skill/references/collection.md",
+              "/Users/wanglang/Project/daily-report-skill/references/writing.md",
+              "/Users/wanglang/Project/daily-report-skill/examples/readability.md"
+            ],
+            "workflow": {
+              "route": "已有选定对象，使用用户提供的完整材料，从核对证据开始。",
+              "collection": "未采集真实工作数据，未联网，未委派，未读取配置。",
+              "clarification": "无需确认对象或补问；用户已完成选择并说明没有额外文档。",
+              "delivery": "用户要求直接回复，因此没有生成另一个默认日报文件；response.md 仅为本次隔离任务要求的完整回复产物。",
+              "review_and_rewrite": [
+                "将过滤器配置的行为、测试范围、旧文件生效条件和当天状态拆开，删去不影响结论的测试数量及内部映射字段名。",
+                "将旧快照段落从索引字段名开头改为先说明查询行为，再说明首次写入位置的作用。",
+                "将实时状态索引的历史实现与当天补充测试区分，合并状态紧跟对应事项。",
+                "将分配器迁移的版本兼容限制与迁移方案分别说明，保留项目定制日志和安装顺序。"
+              ]
+            },
+            "tool_calls": [
+              {
+                "tool": "functions.exec / exec_command",
+                "summary": "并行 cat 读取 SKILL.md 和 input.json。",
+                "result": "两次读取均退出 0。"
+              },
+              {
+                "tool": "functions.exec / exec_command",
+                "summary": "并行 cat 读取 collection.md 与 writing.md。",
+                "result": "两次读取均退出 0。"
+              },
+              {
+                "tool": "functions.exec / exec_command",
+                "summary": "cat 读取 examples/readability.md，仅借鉴改写方式。",
+                "result": "退出 0；示例未作为事实来源。"
+              },
+              {
+                "tool": "functions.exec / exec_command",
+                "summary": "用 Python 将内存中的回复和核对记录写入允许目录；写入前检查每条核对句存在于回复且证据 ID 合法。",
+                "writes": [
+                  "/private/tmp/daily-report-readability-0215ls7a/rerun/dense_selected_work/response.md",
+                  "/private/tmp/daily-report-readability-0215ls7a/rerun/dense_selected_work/audit.json"
+                ]
+              }
+            ],
+            "modified_paths": [
+              "/private/tmp/daily-report-readability-0215ls7a/rerun/dense_selected_work/response.md",
+              "/private/tmp/daily-report-readability-0215ls7a/rerun/dense_selected_work/audit.json"
+            ],
+            "fact_checks": [
+              {
+                "text": "store：按表配置过滤器（#31）",
+                "evidence_ids": [
+                  "P31",
+                  "C31"
+                ]
+              },
+              {
+                "text": "补齐过滤器选项的按表配置映射，并将配置、命令行和日志中的名称统一为 `optimize_filters`。",
+                "evidence_ids": [
+                  "C31"
+                ]
+              },
+              {
+                "text": "交易哈希表默认开启该选项，显式表配置优先于默认值。",
+                "evidence_ids": [
+                  "P31",
+                  "C31"
+                ]
+              },
+              {
+                "text": "配置单测、交易哈希查询特性下的目标测试，以及格式和 Clippy 检查通过；未运行全量测试。",
+                "evidence_ids": [
+                  "T31",
+                  "T32"
+                ]
+              },
+              {
+                "text": "该选项只影响新生成的数据文件，旧 SST 需经 compaction 重写后才生效。",
+                "evidence_ids": [
+                  "P31"
+                ]
+              },
+              {
+                "text": "改动当天已提交、尚未合并；未命中哈希查询的 I/O 和延迟影响尚未测量。",
+                "evidence_ids": [
+                  "N31"
+                ]
+              },
+              {
+                "text": "node：补充状态索引回归测试（#32）",
+                "evidence_ids": [
+                  "P32",
+                  "C32"
+                ]
+              },
+              {
+                "text": "在此前已完成的实时状态索引重构上，本期只补充“缺少字节码时不得修改共享索引”的回归测试。",
+                "evidence_ids": [
+                  "P32",
+                  "C32"
+                ]
+              },
+              {
+                "text": "测试改动当天已合并；材料未提供测试运行结果。",
+                "evidence_ids": [
+                  "P32",
+                  "C32"
+                ]
+              },
+              {
+                "text": "node：调整旧快照查询（#33）",
+                "evidence_ids": [
+                  "C33"
+                ]
+              },
+              {
+                "text": "旧快照读取在其创建后才首次写入的 key 时，改为直接返回“无变更”，无需扫描条目。",
+                "evidence_ids": [
+                  "C33"
+                ]
+              },
+              {
+                "text": "这通过在 key 索引中记录首次写入位置实现。",
+                "evidence_ids": [
+                  "C33"
+                ]
+              },
+              {
+                "text": "同时，将账户创建、删除前后的快照可见性断言改为通过公开接口检查。",
+                "evidence_ids": [
+                  "C33"
+                ]
+              },
+              {
+                "text": "改动已提交，尚未合并；材料未提供测试运行结果。",
+                "evidence_ids": [
+                  "C33"
+                ]
+              },
+              {
+                "text": "node：迁移至上游 cli-util（#34）",
+                "evidence_ids": [
+                  "P34",
+                  "C34"
+                ]
+              },
+              {
+                "text": "将 cli-util 改为直接依赖上游 v2.3.0，并移除本地 fork 和 patch。",
+                "evidence_ids": [
+                  "P34",
+                  "C34"
+                ]
+              },
+              {
+                "text": "项目定制的 panic 日志处理迁至 acme-utils，仍保持先安装 SIGSEGV handler 的顺序。",
+                "evidence_ids": [
+                  "P34",
+                  "C34"
+                ]
+              },
+              {
+                "text": "上游 jemalloc 0.6 与工作区 0.7 不能同时启用。",
+                "evidence_ids": [
+                  "P34"
+                ]
+              },
+              {
+                "text": "为避开这一依赖冲突，共享分配器支持移至 acme-utils，各二进制继续保留全局分配器声明。",
+                "evidence_ids": [
+                  "P34",
+                  "C34"
+                ]
+              },
+              {
+                "text": "改动当天已提交，尚未合并；材料未提供验证结果。",
+                "evidence_ids": [
+                  "P34",
+                  "C34"
+                ]
+              }
+            ],
+            "evidence_notes": [
+              {
+                "evidence_ids": [
+                  "N31"
+                ],
+                "note": "10 月 17 日合并属于后续情况，日报采用 10 月 16 日已提交、尚未合并的状态。"
+              },
+              {
+                "evidence_ids": [
+                  "P32",
+                  "C32"
+                ],
+                "note": "这两条材料未给出测试运行记录；正文仅说明材料缺口，未断言测试未运行或失败。"
+              },
+              {
+                "evidence_ids": [
+                  "P34",
+                  "C34"
+                ],
+                "note": "这两条材料未给出验证结果；正文仅说明材料缺口，不推断未测试。没有将维护成本或性能改善写成结果。"
+              },
+              {
+                "evidence_ids": [
+                  "T31",
+                  "T32"
+                ],
+                "note": "通过同一 call_id filter-tests 配对调用与结果，验证范围采用最终改名后的结果。"
+              }
+            ],
+            "instruction_sources_used_for_facts": false,
+            "external_data_accessed": false
+          },
+          "additional_report_artifacts": {},
+          "reader_restatement": "过滤器可按表配置，本期提交未合并且仅相关检查通过，旧数据需重写、查询影响未测量；状态索引本期补的回归测试已合并，另一个旧快照跳过扫描的优化未合并、无测试结果；cli-util 改用上游，保留定制日志并处理分配器冲突，提交未合并。",
+          "criteria_review": [
+            {
+              "criterion": "首句让读者理解每个主题的工作对象和变化；过滤器主题说明可以按表配置，不能只列选项改名和实现名。",
+              "verdict": "pass",
+              "support_quote": "补齐过滤器选项的按表配置映射",
+              "review": "标题与首句说明按表配置，随后交代默认值及覆盖关系；其余三项也先说明工作对象和变化。"
+            },
+            {
+              "criterion": "解释首写位置记录如何让旧快照跳过之后才出现的数据，不要求读者自行串联 key、index、扫描等词。",
+              "verdict": "pass",
+              "support_quote": "这通过在 key 索引中记录首次写入位置实现",
+              "review": "先说明旧快照查询之后才出现的 key 可跳过扫描，再解释首次写入位置如何支持判断。"
+            },
+            {
+              "criterion": "区分 #32 本期只补测试且已合并、#33 后续优化已提交未合并；不能把整个索引重构算成本期实现，不能把 #33 测试写成已通过。",
+              "verdict": "pass",
+              "support_quote": "本期只补充“缺少字节码时不得修改共享索引”的回归测试",
+              "review": "#32 仅补测试且已合并；#33 优化提交未合并，明确没有测试运行结果。"
+            },
+            {
+              "criterion": "保留旧数据需重写后生效、未命中查询的 I/O 与延迟影响未测量，以及 #31 只有相关测试通过的范围。",
+              "verdict": "pass",
+              "support_quote": "旧 SST 需经 compaction 重写后才生效",
+              "review": "旧数据生效条件、未命中查询的 I/O/延迟未测量、相关测试通过且未跑全量均保留。"
+            },
+            {
+              "criterion": "不将 #31 后续合并倒填为当天合并；#34 保留已提交尚未合并，不暗示评审已通过或只剩合并动作。",
+              "verdict": "pass",
+              "support_quote": "改动当天已提交、尚未合并",
+              "review": "#31 未将次日合并计入当天；#34 同样提交未合并，没有暗示评审就绪。"
+            },
+            {
+              "criterion": "cli-util 迁移讲清直接依赖上游、保留自定义日志行为、处理分配器依赖冲突；不补写量化收益或未证实的性能提升。",
+              "verdict": "pass",
+              "support_quote": "为避开这一依赖冲突，共享分配器支持移至 acme-utils",
+              "review": "保留直接依赖上游、定制日志及安装顺序、分配器版本冲突，未补写收益或性能变化。"
+            },
+            {
+              "criterion": "实现、验证、生效条件和多项状态有清楚层次；不把全部细节压入长句，不要求删除所有术语，也不以字符数单独判定。",
+              "verdict": "pass",
+              "support_quote": "上游 jemalloc 0.6 与工作区 0.7 不能同时启用",
+              "review": "版本冲突单句说明，再解释迁移方案；过滤器实现/验证/条件、索引两项状态各有清楚归属。"
+            },
+            {
+              "criterion": "正常覆盖所选工作，直接回复；不重新选择、不采集、不把测试材料落盘为正式日报。",
+              "verdict": "pass",
+              "support_quote": null,
+              "review": "正常覆盖全部所选工作，直接回复；audit 报告没有采集、确认、联网或正式日报落盘，只写隔离产物。"
+            }
+          ],
+          "verdict": "pass"
+        },
+        {
+          "case_id": "brief_without_motive",
+          "agent": "/root/readability_brief_v2",
+          "user_visible_response": "acme-store：将快照索引字段 startOffset 改名为 firstWriteIndex，同步调整读取引用。已本地提交，合并状态未确认。命名迁移的 3 项单测通过，未见全量重跑记录。\n",
+          "response_sha256": "baa4c45bd1ee766ca3a80bd57310c79652ede00d967817ee2897000676443916",
+          "response_characters": 97,
+          "audit_self_reported": {
+            "date": "2026-10-16",
+            "route": "基于所给完整材料，核对已选证据后直接回复；不采集、不补问、不生成独立日报文件。",
+            "read_files": [
+              "/private/tmp/daily-report-readability-0215ls7a/rerun/brief_without_motive/input.json",
+              "/Users/wanglang/Project/daily-report-skill/SKILL.md",
+              "/Users/wanglang/Project/daily-report-skill/references/collection.md",
+              "/Users/wanglang/Project/daily-report-skill/references/writing.md"
+            ],
+            "tool_calls": [
+              {
+                "tool": "exec_command",
+                "summary": "读取输入及技能入口。"
+              },
+              {
+                "tool": "exec_command",
+                "summary": "读取 collection.md，核对已选提交和配对工具记录。"
+              },
+              {
+                "tool": "exec_command",
+                "summary": "读取 writing.md，按状态、验证范围和篇幅要求写稿并审稿。"
+              },
+              {
+                "tool": "exec_command",
+                "summary": "使用 Python 写入 response.md 和 audit.json，并断言正文不超过 100 字符。"
+              }
+            ],
+            "modified_paths": [
+              "/private/tmp/daily-report-readability-0215ls7a/rerun/brief_without_motive/response.md",
+              "/private/tmp/daily-report-readability-0215ls7a/rerun/brief_without_motive/audit.json"
+            ],
+            "sentence_evidence": [
+              {
+                "sentence": "acme-store：将快照索引字段 startOffset 改名为 firstWriteIndex，同步调整读取引用。",
+                "evidence_ids": [
+                  "C41"
+                ]
+              },
+              {
+                "sentence": "已本地提交，合并状态未确认。",
+                "evidence_ids": [
+                  "C41"
+                ]
+              },
+              {
+                "sentence": "命名迁移的 3 项单测通过，未见全量重跑记录。",
+                "evidence_ids": [
+                  "T41",
+                  "T42"
+                ],
+                "reason": "通过 call_id rename-tests 配对测试调用和结果，保持验证范围。"
+              }
+            ],
+            "review": {
+              "character_count": 97,
+              "limit": 100,
+              "changes": "将改动、本地提交及未知合并状态、局部验证分为三句，省略没有证据的动机和收益。",
+              "coverage": "仅使用所给材料；未将局部单测通过写成全量验证通过。"
+            }
+          },
+          "additional_report_artifacts": {},
+          "reader_restatement": "快照索引字段改名并同步引用，已本地提交，只通过相关单测；首次正文没有明确合并状态未知，复测补齐。",
+          "criteria_review": [
+            {
+              "criterion": "在 100 字内清楚说明快照索引字段的重命名与引用调整，不通过缩写或拼接名词压缩。",
+              "verdict": "pass",
+              "support_quote": "同步调整读取引用",
+              "review": "97 个字符，保留完整名称，改动、状态、验证三句可理解。"
+            },
+            {
+              "criterion": "保留已本地提交、合并状态未知，以及只通过相关单测且无全量重跑的边界。",
+              "verdict": "pass",
+              "support_quote": "已本地提交，合并状态未确认",
+              "review": "另明确命名迁移的 3 项单测通过、未见全量重跑记录，已补回首次遗漏的状态缺口。"
+            },
+            {
+              "criterion": "不编造重命名动机，不写修复查询错误、提升性能或其他未提供的收益。",
+              "verdict": "pass",
+              "support_quote": "将快照索引字段 startOffset 改名为 firstWriteIndex",
+              "review": "只报告改名及引用调整，没有添加原因或收益。"
+            },
+            {
+              "criterion": "直接交付条目，不重复确认范围、补问材料或运行采集。",
+              "verdict": "pass",
+              "support_quote": null,
+              "review": "直接交付条目；audit 未报告重新确认、追问、采集或另存日报。"
+            }
+          ],
+          "verdict": "pass"
+        },
+        {
+          "case_id": "provided_evidence_custom_format",
+          "agent": "/root/readability_names_v2",
+          "user_visible_response": "| 工作 | 当前状态 |\n| --- | --- |\n| acme-node：将 `TransactionValidationWorkerCompatibilityAdapter` 迁移到适配层。 | 会话记录称已本地提交、尚未联调，兼容性要求待接口负责人确认。 |\n",
+          "response_sha256": "c81d66a8fc68e0eabf8ffbc3e29ec1210be22ee02e5831618c5f3030f39354a0",
+          "response_characters": 134,
+          "audit_self_reported": {
+            "input_path": "/private/tmp/daily-report-readability-0215ls7a/rerun/provided_evidence_custom_format/input.json",
+            "report_date": "2026-10-16",
+            "read_files": [
+              "/private/tmp/daily-report-readability-0215ls7a/rerun/provided_evidence_custom_format/input.json",
+              "/Users/wanglang/Project/daily-report-skill/SKILL.md",
+              "/Users/wanglang/Project/daily-report-skill/references/collection.md",
+              "/Users/wanglang/Project/daily-report-skill/references/writing.md"
+            ],
+            "tool_calls_summary": [
+              {
+                "tool": "functions.exec / exec_command",
+                "action": "并行只读 input.json 与 SKILL.md；两条 cat 命令均成功。"
+              },
+              {
+                "tool": "functions.exec / exec_command",
+                "action": "并行只读 collection.md 与 writing.md；两条 cat 命令均成功。"
+              },
+              {
+                "tool": "functions.exec / exec_command",
+                "action": "使用 Python 写入 response.md 和 audit.json，并对内存中的回复格式与必留名称做断言。"
+              }
+            ],
+            "modified_paths": [
+              "/private/tmp/daily-report-readability-0215ls7a/rerun/provided_evidence_custom_format/response.md",
+              "/private/tmp/daily-report-readability-0215ls7a/rerun/provided_evidence_custom_format/audit.json"
+            ],
+            "routing": "用户已提供完整选定证据并指定直接回复两列表格；从证据核对开始，不采集、不确认、不读取配置、不额外生成日报文件。",
+            "fact_evidence_map": [
+              {
+                "sentence": "acme-node：将 `TransactionValidationWorkerCompatibilityAdapter` 迁移到适配层。",
+                "evidence_ids": [
+                  "C8"
+                ],
+                "basis": "提交记录明确仓库、完整名称以及迁移目标层；没有推断动机、收益或合并状态。"
+              },
+              {
+                "sentence": "会话记录称已本地提交、尚未联调，兼容性要求待接口负责人确认。",
+                "evidence_ids": [
+                  "S7"
+                ],
+                "basis": "按助手自述明确归因；不将该自述升级为工具验证结论。"
+              }
+            ],
+            "review": {
+              "revision": "初稿仅用迁移名称概括工作，审稿后补齐仓库与迁移到适配层的具体变化；将状态统一改成对会话记录的明确归因。",
+              "preserved": [
+                "用户要求的两列表格",
+                "完整 TransactionValidationWorkerCompatibilityAdapter 名称",
+                "本地提交状态",
+                "尚未联调",
+                "等待接口负责人确认兼容性要求"
+              ],
+              "unsupported_claims_omitted": [
+                "性能或稳定性收益",
+                "测试通过",
+                "已合并",
+                "后续实施计划"
+              ]
+            },
+            "network_used": false,
+            "delegation_used": false
+          },
+          "additional_report_artifacts": {},
+          "reader_restatement": "指定组件迁移到适配层，本地提交、未联调，等待接口负责人确认兼容性要求。",
+          "criteria_review": [
+            {
+              "criterion": "基于所给材料直接写稿，不运行采集器、不询问配置或默认落盘路径",
+              "verdict": "pass",
+              "support_quote": "| 工作 | 当前状态 |",
+              "review": "直接按材料提供表格；audit 未报告采集或询问配置、默认目录。"
+            },
+            {
+              "criterion": "用户已提供完整材料，不再追问范围外文档产出",
+              "verdict": "pass",
+              "support_quote": null,
+              "review": "回复未补问范围外文档，audit 未报告追问。"
+            },
+            {
+              "criterion": "遵循用户指定的两列表格并直接回复，不套用默认主题章节",
+              "verdict": "pass",
+              "support_quote": "| 工作 | 当前状态 |",
+              "review": "使用用户指定两列，无默认主题章节或另存报告提示。"
+            },
+            {
+              "criterion": "完整保留长技术名称，不为默认 15 字标题限制截断名称",
+              "verdict": "pass",
+              "support_quote": "TransactionValidationWorkerCompatibilityAdapter",
+              "review": "完整保留技术名称，没有缩写或截断。"
+            },
+            {
+              "criterion": "写明本地提交、未联调和待确认兼容性要求，不压缩成已验证",
+              "verdict": "pass",
+              "support_quote": "会话记录称已本地提交、尚未联调，兼容性要求待接口负责人确认",
+              "review": "状态有明确来源归属，没有将助手自述提升为验证通过。"
+            }
+          ],
+          "verdict": "pass"
+        },
+        {
+          "case_id": "failed_then_scoped_pass",
+          "agent": "/root/readability_scope_v2",
+          "user_visible_response": "# 2026-10-16 工作日报\n\n## acme-tool：邮箱匹配修正\n\n已提交邮箱匹配修正，合并状态未确认。提交后，`test_author` 的测试通过。\n\n此前完整测试运行有 2 项失败；材料中没有修正后重跑完整测试的结果，尚不能确认全量测试通过。\n\n已保存：[2026-10-16.md](/private/tmp/daily-report-readability-0215ls7a/rerun/failed_then_scoped_pass/2026-10-16.md)。\n",
+          "response_sha256": "78da9c934f12441165f6c24663025fa130ecd3a9c3ebb4b18d2a9266471ec642",
+          "response_characters": 244,
+          "audit_self_reported": {
+            "read_files": [
+              "/private/tmp/daily-report-readability-0215ls7a/rerun/failed_then_scoped_pass/input.json",
+              "/Users/wanglang/Project/daily-report-skill/SKILL.md",
+              "/Users/wanglang/Project/daily-report-skill/references/writing.md",
+              "/Users/wanglang/Project/daily-report-skill/README.md",
+              "/Users/wanglang/Project/daily-report-skill/references/collection.md"
+            ],
+            "tool_calls": [
+              {
+                "tool": "exec_command",
+                "summary": "读取技能入口及指定输入。"
+              },
+              {
+                "tool": "exec_command",
+                "summary": "读取写作规范及 README；未访问 README 内的 tests 链接。"
+              },
+              {
+                "tool": "exec_command",
+                "summary": "读取证据核对规则。"
+              },
+              {
+                "tool": "exec_command",
+                "summary": "只在指定输出目录写入日报、完整回复和审计 JSON，使用排他创建避免覆盖。"
+              }
+            ],
+            "modified_paths": [
+              "/private/tmp/daily-report-readability-0215ls7a/rerun/failed_then_scoped_pass/2026-10-16.md",
+              "/private/tmp/daily-report-readability-0215ls7a/rerun/failed_then_scoped_pass/response.md",
+              "/private/tmp/daily-report-readability-0215ls7a/rerun/failed_then_scoped_pass/audit.json"
+            ],
+            "routing": "用户已给定材料，从证据核对进入写稿，不发现其他工作，不补问。",
+            "delivery": "新报告按日期保存；按隔离任务授权将报告目录映射为指定输出目录。不读取真实配置或工作数据。",
+            "sentence_evidence": [
+              {
+                "text": "2026-10-16 工作日报",
+                "evidence_ids": [],
+                "input_fields": [
+                  "date"
+                ]
+              },
+              {
+                "text": "acme-tool：邮箱匹配修正",
+                "evidence_ids": [
+                  "C7"
+                ]
+              },
+              {
+                "text": "已提交邮箱匹配修正，合并状态未确认。",
+                "evidence_ids": [
+                  "C7"
+                ],
+                "note": "提交记录支持已提交；所有输入证据均未给出合并状态，不推断已合并。"
+              },
+              {
+                "text": "提交后，`test_author` 的测试通过。",
+                "evidence_ids": [
+                  "C7",
+                  "T3",
+                  "T4"
+                ],
+                "note": "C7 11:00；call_id b 11:10 执行指定测试模块，11:11 返回 OK 且 exit_code=0。"
+              },
+              {
+                "text": "此前完整测试运行有 2 项失败；材料中没有修正后重跑完整测试的结果，尚不能确认全量测试通过。",
+                "evidence_ids": [
+                  "T1",
+                  "T2",
+                  "C7",
+                  "T3",
+                  "T4",
+                  "S6"
+                ],
+                "note": "call_id a 的 discover -s tests 失败；之后仅 call_id b 局部运行通过。S6 为助手自述，不足以证明全量通过。未将局部通过解释为先前失败已全部修复。"
+              },
+              {
+                "text": "已保存：2026-10-16.md。",
+                "evidence_ids": [],
+                "basis": "本次输出写入结果，非日报工作事实。"
+              }
+            ],
+            "excluded_claims": [
+              {
+                "evidence_id": "S6",
+                "text": "修复完成，测试都通过了。",
+                "reason": "助手自述超出工具记录能够支持的验证范围。"
+              }
+            ],
+            "review": {
+              "initial_draft": "acme-tool 已提交邮箱匹配修正，test_author 的 3 项测试通过，先前全量有 2 项失败，合并及全量复跑状态未知。",
+              "revision": "将提交及局部验证与全量验证缺口拆成两段；去掉不影响局部验证范围的测试数量，保留完整测试失败数量与尚无完整复跑记录的边界。"
+            }
+          },
+          "additional_report_artifacts": {
+            "2026-10-16.md": "# 2026-10-16 工作日报\n\n## acme-tool：邮箱匹配修正\n\n已提交邮箱匹配修正，合并状态未确认。提交后，`test_author` 的测试通过。\n\n此前完整测试运行有 2 项失败；材料中没有修正后重跑完整测试的结果，尚不能确认全量测试通过。\n"
+          },
+          "reader_restatement": "邮箱匹配已修正，后续只证明作者相关测试通过；之前全量失败，没有后续全量通过依据。",
+          "criteria_review": [
+            {
+              "criterion": "说明修正邮箱匹配且相关 3 项测试通过",
+              "verdict": "pass",
+              "support_quote": "提交后，`test_author` 的测试通过",
+              "review": "写明邮箱匹配修正和作者测试模块。3 项数量按写作规则可省略，局部验证范围明确；原 fixture 未修改。"
+            },
+            {
+              "criterion": "不能把局部通过说成全量通过",
+              "verdict": "pass",
+              "support_quote": "尚不能确认全量测试通过",
+              "review": "没有把局部通过扩大成全量通过。"
+            },
+            {
+              "criterion": "全量测试先前失败，未见修复后全量重跑证据",
+              "verdict": "pass",
+              "support_quote": "此前完整测试运行有 2 项失败",
+              "review": "接着明确没有修正后重跑完整测试的结果。"
+            },
+            {
+              "criterion": "助手最后一句不能覆盖工具输出的范围限制",
+              "verdict": "pass",
+              "support_quote": "材料中没有修正后重跑完整测试的结果",
+              "review": "没有让 S6 覆盖工具证据，保留先前失败与后续局部通过的区别。"
+            }
+          ],
+          "verdict": "pass"
+        }
+      ],
+      "passed": 4,
+      "total": 4
+    }
+  ],
+  "correction": {
+    "trigger": "initial/brief_without_motive 漏写材料明确给出的未知合并状态。",
+    "file": "references/writing.md",
+    "before": "本地 commit，无合并/验证证据：已本地提交，其他状态未确认；不写已上线或测试通过。",
+    "after": "本地 commit，无合并/验证证据：写“已本地提交”；材料明确指出合并状态未知时，保留“合并状态未确认”，精简时也不省略。无验证证据不写测试通过。",
+    "rerun": "保留首次原文及评审；用相同原始输入、新的独立 agent 重跑全部四个案例，未修改 criteria。"
+  },
+  "tested_sha256": {
+    "SKILL.md": "410ba653ee31622b74222c2cc9adabeae048e9926df515d854528b41e0cc1fe6",
+    "README.md": "a5b3284d9ac7bd158326d8c47899ec2dabecc79164aada90e29996d785ecb59d",
+    "references/writing.md": "57000f0d7f3c2e4136e1d6ac7961388518e0ef8049b8003368091eb261b0680d",
+    "references/collection.md": "671e05f735340b587c34e6c4581c1d9084d005713afbfb20618ffac147baafd0",
+    "examples/readability.md": "ef39c0fd2969e000b68777fb29004d0f73dd067ecc3299209716f93883f68f3c",
+    "examples/2026-10-16.md": "fa13fffb6bd3d859aee68e43232be19fc0242638d6aafef12432a010466e6433",
+    "examples/2026-10-12~2026-10-18.md": "8e27bb1ba6cffb24e96fb5d660850d63b63cbb284e83350e5171329aa1f255c9",
+    "tests/fixtures/report_readability.json": "ccc8e6d0cc8208fbedc21cde0b3e0a9e42948b02476a13abba06d2c4a0dd1e7c",
+    "tests/fixtures/report_cases.json": "f71a90ab12b2e9ff93e98daaba598261d0c88fafdd60610e5736b6105a7418be"
+  },
+  "script_validation": {
+    "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -q",
+    "tests_run": 180,
+    "exit_code": 0,
+    "elapsed_seconds": 15.27,
+    "output": "[warn] 重采证据数量减少：commits 2 → 1；旧快照已保留\n[warn] claude: 1 个文件读取或解析不完整；详见证据包采集诊断\n----------------------------------------------------------------------\nRan 180 tests in 15.130s\n\nOK\n",
+    "tested_sha256": {
+      "scripts/collect.py": "58866982ccb8b6aafe6047bc56517f4086032bb3132c249e447efdcd1ed6fdba",
+      "scripts/daily_report/__init__.py": "0257a82854884f8673dbc2b0269bf6be6059e8c39436d2b61e564cab4c898a91",
+      "scripts/daily_report/analysis.py": "72311dad73da64e264bb9c9c03028e16a4dbb7f644ff9af2933fb3611b6f480b",
+      "scripts/daily_report/config.py": "33cdf5b71e8dc444bb5fd79d53976b4f3e12f33741a8e9ba3cb2d41b9c2fe2b7",
+      "scripts/daily_report/diagnostics.py": "5c3cc5d7d957496a9bec82e2a8ffc6561124fddbc151301e543aaef8c464adbe",
+      "scripts/daily_report/evidence.py": "a9193b62711082850d12fb90a04bc6ca83c350e4a177cba46a70f337770dc8e1",
+      "scripts/daily_report/evidence_reader.py": "7af3efd71d35ead8a529410e371cc119cdc7276cf60942cd9beca9feda854189",
+      "scripts/daily_report/github.py": "fe090f1e1672d384304bb90373683de66a7a67b6b018ce7ab6e5d1556e49cb86",
+      "scripts/daily_report/github_details.py": "7c5892fb38692a82509d83fe0291f5ac3722884df4d4ef78e1d08cc0461ca284",
+      "scripts/daily_report/gitlog.py": "b1c3d7258ed26159c972416adfbf8be32191a8154bef324fd453759c56a87b44",
+      "scripts/daily_report/limits.py": "7b128254da51666cccd1a34cffdbe2331c613dc11b69a424c6befdb288a8b2c6",
+      "scripts/daily_report/messages.py": "a17fce87699a0929dd06731cac3e997a9f8a00166cd8983f750abd37aa2f8a37",
+      "scripts/daily_report/models.py": "9c187a781af7bb4b731c847ecc9133b539622a126f8369d2d264ce975232fea7",
+      "scripts/daily_report/pipeline.py": "f0b5e4a96109f6440428229cb0cc4010d8786076825b3006c5c4e14f6913f871",
+      "scripts/daily_report/pr_report.py": "286c6ee67a967c72385eb22fa1495fa65ca31c9ac00179ecb19eb41b7e0a1eda",
+      "scripts/daily_report/render.py": "988d3a8acc7b2775240e9b1fd1e3246b1f0a897965f5a0daff01549d0fbe6aff",
+      "scripts/daily_report/session_events.py": "11d86610daa054ec2bc9388a88e17885b5cbf897fe7e43f18141c5580eee31f4",
+      "scripts/daily_report/sessions.py": "4364f7881807ee9c4be6a1ed6fe641db9f2760fbb37090c1583564a8c86f8e7f",
+      "scripts/daily_report/settings.py": "f2cc5509727d8e41a42af1d57f4f504f30e3e25a388dd4d978740e3025846f83",
+      "scripts/daily_report/text.py": "5372acb474a0064a34801f8933857e8f1101a00801ecf66794f4dd851dcfb4b2",
+      "scripts/daily_report/timewindow.py": "92fabc5367901f3a4ccbece6efca8808133dc02c7c637038b812965efa7dc974",
+      "scripts/pr_details.py": "3224bcc97ac9cb3296327c851b3cd57291b3aabfc57f1f96a40d97499d055cb0",
+      "scripts/read_evidence.py": "1771f987e4eabcb7fc81a9d97c45e001df581336dbf7bd39f30e08469d738855",
+      "scripts/sync_install.py": "3d581a8dd31184715350aede07dbea3bf05952433bb1ee911d8c60d0cc4521d0",
+      "tests/helpers.py": "336bf3c747a6abacaf845356f4578e9828d391002c6c976eed310cdbf3bbd275",
+      "tests/test_cli.py": "055208d5624bd15017fc0b859eda6e9928842918cf05277535fd3d61cc37e6a9",
+      "tests/test_config.py": "9dffb53dbda2d55772f0170305c806e4ed6861f9ba0b595e5b74871674572312",
+      "tests/test_evidence.py": "ae77fb5d4d406f72fac18b197bf8531358ef65b98a71b5db8f83fcf199808e2d",
+      "tests/test_fetch.py": "10856919bbbd05bfaf011eb0ad203c510435d14868cfc6800826ef7ab85477f4",
+      "tests/test_git.py": "b9b533925a78ad1ee32bf7e9b88a00588529fef90ba8e6654cdd83ab40e12932",
+      "tests/test_install.py": "7b01b5e202b70f1e9f6f163e6b687790ccad4e8d731468a995d58b5e67cc7fd2",
+      "tests/test_prs.py": "a055535f1c3d11132ace92d6d8c7c4cc0c8b511b34df90e76faba29a6cf04388",
+      "tests/test_reader.py": "e9f91381db660f54679e454ad5d0edc560a2df9a32734011073847cf1749aaa0",
+      "tests/test_render.py": "72a9c586d029bf51c0a5adf71ee66d06a3a0a7521c7499524e38f295ecfc83b6",
+      "tests/test_scope.py": "c9e94339d8bcb1da30f98f2af928de126448c352fd03a5042dd6cb522fde90bd",
+      "tests/test_sessions.py": "9b7df69d4af6955f152dca2719f83cc06c8c370eb230ec270a26029d1e20954d"
+    },
+    "changed_during_run": [
+      "scripts/daily_report/github.py"
+    ],
+    "note": "该次执行 180 项通过；运行期间 github.py 另有维护修改，因此本次结果不作为这些并行脚本改动最终版本的验收。tested_sha256 为本次运行前捕获。"
+  },
+  "structural_validation": {
+    "skill_creator_quick_validate": "Skill is valid!",
+    "git_diff_check": "passed",
+    "document_link_check": "all checked local targets exist",
+    "fixtures": "valid JSON"
+  },
+  "limitations": [
+    "只执行两个新可读性案例与两个原有回归案例，没有重跑其余独立案例或连续多轮对话。",
+    "合成材料，不验证真实 GitHub、仓库采集或账号连通性；未修改用户原有日报。",
+    "可读性判断是针对本轮输出的语义评审，不保证未来任意报告都容易理解。",
+    "脚本测试与写作行为验收分开记录，不用 180 项单元测试代替写作评价。"
+  ],
+  "result": {
+    "final_round_passed": 4,
+    "final_round_total": 4,
+    "initial_round_failed": [
+      "brief_without_motive"
+    ]
+  },
+  "earlier_script_validation": {
+    "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -q",
+    "exit_code": 0,
+    "tests_run": 180,
+    "elapsed_seconds": 13.864,
+    "output": "[warn] 重采证据数量减少：commits 2 → 1；旧快照已保留\n[warn] claude: 1 个文件读取或解析不完整；详见证据包采集诊断\n----------------------------------------------------------------------\nRan 180 tests in 13.864s\n\nOK\n",
+    "tested_sha256": {
+      "scripts/collect.py": "58866982ccb8b6aafe6047bc56517f4086032bb3132c249e447efdcd1ed6fdba",
+      "scripts/daily_report/__init__.py": "0257a82854884f8673dbc2b0269bf6be6059e8c39436d2b61e564cab4c898a91",
+      "scripts/daily_report/analysis.py": "72311dad73da64e264bb9c9c03028e16a4dbb7f644ff9af2933fb3611b6f480b",
+      "scripts/daily_report/config.py": "f3f70ee94c0b920abe552d06dda3fb9d0d2eba09fa2de68040b085ebb6a427bc",
+      "scripts/daily_report/diagnostics.py": "5c3cc5d7d957496a9bec82e2a8ffc6561124fddbc151301e543aaef8c464adbe",
+      "scripts/daily_report/evidence.py": "a9193b62711082850d12fb90a04bc6ca83c350e4a177cba46a70f337770dc8e1",
+      "scripts/daily_report/evidence_reader.py": "7af3efd71d35ead8a529410e371cc119cdc7276cf60942cd9beca9feda854189",
+      "scripts/daily_report/github.py": "165df19ac2a9961c31ab46aac055cb584247fa054b3ed1a74ecebcb2a9b8d1fa",
+      "scripts/daily_report/github_details.py": "7c5892fb38692a82509d83fe0291f5ac3722884df4d4ef78e1d08cc0461ca284",
+      "scripts/daily_report/gitlog.py": "595566c996878a49c3b4853d9a41cb869f394fc408816fecdc44d41b19d085c6",
+      "scripts/daily_report/limits.py": "7b128254da51666cccd1a34cffdbe2331c613dc11b69a424c6befdb288a8b2c6",
+      "scripts/daily_report/models.py": "9c187a781af7bb4b731c847ecc9133b539622a126f8369d2d264ce975232fea7",
+      "scripts/daily_report/pipeline.py": "f0b5e4a96109f6440428229cb0cc4010d8786076825b3006c5c4e14f6913f871",
+      "scripts/daily_report/pr_report.py": "286c6ee67a967c72385eb22fa1495fa65ca31c9ac00179ecb19eb41b7e0a1eda",
+      "scripts/daily_report/render.py": "988d3a8acc7b2775240e9b1fd1e3246b1f0a897965f5a0daff01549d0fbe6aff",
+      "scripts/daily_report/session_events.py": "11d86610daa054ec2bc9388a88e17885b5cbf897fe7e43f18141c5580eee31f4",
+      "scripts/daily_report/sessions.py": "4364f7881807ee9c4be6a1ed6fe641db9f2760fbb37090c1583564a8c86f8e7f",
+      "scripts/daily_report/settings.py": "f2cc5509727d8e41a42af1d57f4f504f30e3e25a388dd4d978740e3025846f83",
+      "scripts/daily_report/text.py": "5372acb474a0064a34801f8933857e8f1101a00801ecf66794f4dd851dcfb4b2",
+      "scripts/daily_report/timewindow.py": "862cc52fc41870d7718156e9dc9fe0b537913befa453260b1e075e78e1e00e1b",
+      "scripts/pr_details.py": "3224bcc97ac9cb3296327c851b3cd57291b3aabfc57f1f96a40d97499d055cb0",
+      "scripts/read_evidence.py": "1771f987e4eabcb7fc81a9d97c45e001df581336dbf7bd39f30e08469d738855",
+      "scripts/sync_install.py": "3d581a8dd31184715350aede07dbea3bf05952433bb1ee911d8c60d0cc4521d0",
+      "tests/helpers.py": "336bf3c747a6abacaf845356f4578e9828d391002c6c976eed310cdbf3bbd275",
+      "tests/test_cli.py": "055208d5624bd15017fc0b859eda6e9928842918cf05277535fd3d61cc37e6a9",
+      "tests/test_config.py": "9dffb53dbda2d55772f0170305c806e4ed6861f9ba0b595e5b74871674572312",
+      "tests/test_evidence.py": "ae77fb5d4d406f72fac18b197bf8531358ef65b98a71b5db8f83fcf199808e2d",
+      "tests/test_fetch.py": "10856919bbbd05bfaf011eb0ad203c510435d14868cfc6800826ef7ab85477f4",
+      "tests/test_git.py": "b9b533925a78ad1ee32bf7e9b88a00588529fef90ba8e6654cdd83ab40e12932",
+      "tests/test_install.py": "7b01b5e202b70f1e9f6f163e6b687790ccad4e8d731468a995d58b5e67cc7fd2",
+      "tests/test_prs.py": "a055535f1c3d11132ace92d6d8c7c4cc0c8b511b34df90e76faba29a6cf04388",
+      "tests/test_reader.py": "e9f91381db660f54679e454ad5d0edc560a2df9a32734011073847cf1749aaa0",
+      "tests/test_render.py": "72a9c586d029bf51c0a5adf71ee66d06a3a0a7521c7499524e38f295ecfc83b6",
+      "tests/test_scope.py": "c9e94339d8bcb1da30f98f2af928de126448c352fd03a5042dd6cb522fde90bd",
+      "tests/test_sessions.py": "9b7df69d4af6955f152dca2719f83cc06c8c370eb230ec270a26029d1e20954d"
+    },
+    "hash_capture_note": "脚本哈希在该次运行结束后捕获；随后工作区出现并行维护修改。"
+  }
+}

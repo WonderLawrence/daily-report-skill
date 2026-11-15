@@ -96,16 +96,18 @@ class TestCli(unittest.TestCase):
         left = sorted(p.name for p in (self.base / "reports" / ".evidence").glob("*.md"))
         self.assertEqual(left, ["20261016.md"])
 
-    def test_force_required_to_overwrite(self):
-        repo = make_repo(self.base, "forceRepo")
+    def test_overwrite_requires_explicit_flag(self):
+        repo = make_repo(self.base, "overwriteRepo")
         commit(repo, "feat: x", committed="2026-10-16T10:00:00+08:00")
         run(["--date", "2026-10-16", "--repo", str(repo), "--no-sessions"], env=self.env)
         r = run(["--date", "2026-10-16", "--repo", str(repo), "--no-sessions"], env=self.env)
         self.assertEqual(r.returncode, 2)
-        self.assertIn("--force", r.stderr)
-        r2 = run(["--date", "2026-10-16", "--repo", str(repo), "--no-sessions", "--force"],
-                 env=self.env)
-        self.assertEqual(r2.returncode, 0)
+        self.assertIn("--overwrite", r.stderr)
+        for flag in ("--overwrite", "--force"):
+            with self.subTest(flag=flag):
+                r2 = run(["--date", "2026-10-16", "--repo", str(repo), "--no-sessions", flag],
+                         env=self.env)
+                self.assertEqual(r2.returncode, 0, r2.stderr)
 
     def test_week_flag_conflicts_with_date(self):
         r = run(["--week", "--date", "2026-10-16"], env=self.env)

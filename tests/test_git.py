@@ -9,6 +9,7 @@ from pathlib import Path
 
 from helpers import (analysis, evidence, gitlog, make_commit, make_session, make_repo,
                      commit, git, period_of, stderr_of, TZ, PERIOD)
+from daily_report.models import Event
 
 
 class TestDedupeAndRevert(unittest.TestCase):
@@ -65,11 +66,24 @@ class TestAnalysis(unittest.TestCase):
 
     def test_mark_near_duplicates(self):
         s1 = make_session(project="/p", users=["same prompt"],
+                          events=[Event("user_request", "same prompt")],
                           start=datetime(2026, 10, 12, tzinfo=TZ))
         s2 = make_session(project="/p", users=["same prompt"],
+                          events=[Event("user_request", "same\n prompt")],
                           start=datetime(2026, 10, 13, tzinfo=TZ))
         analysis.mark_near_duplicates([s1, s2])
         self.assertEqual((s1.dup_n, s2.dup_n), (2, 2))
+
+    def test_duplicate_marker_uses_full_request_and_resets_stale_markers(self):
+        common = "Please investigate this repeated task context. " * 10
+        records = [make_session(users=["# AGENTS.md instructions /demo"], dup_n=8,
+                   events=[Event("user_request", "# AGENTS.md instructions /demo"),
+                           Event("user_request", "继续"), Event("user_request", common + suffix)])
+                   for suffix in ("fix parser", "fix fetch", "fix parser")]
+        records += [make_session(users=["same truncated summary"], dup_n=8),
+                    make_session(events=[Event("user_request", "继续")], dup_n=8)]
+        analysis.mark_near_duplicates(records)
+        self.assertEqual([s.dup_n for s in records], [2, 0, 2, 0, 0])
 
     def test_prune_evidence_keeps_newest(self):
         with tempfile.TemporaryDirectory() as td:

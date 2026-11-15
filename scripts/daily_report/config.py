@@ -9,6 +9,8 @@ import json
 import os
 from pathlib import Path
 
+from . import messages as m
+
 # scripts/daily_report/config.py -> scripts -> skill root
 SKILL_DIR = Path(__file__).resolve().parents[2]
 
@@ -56,9 +58,9 @@ def load_config(path: Path) -> dict:
         try:
             user = json.loads(path.read_text(encoding="utf-8"))
         except Exception as e:
-            raise ValueError(f"配置文件解析失败：{e}") from e
+            raise ValueError(m.CFG_ERR_LOAD_FAILED.format(detail=e)) from e
         if not isinstance(user, dict):
-            raise ValueError("配置文件顶层必须是 JSON 对象")
+            raise ValueError(m.CFG_ERR_TOP_LEVEL)
         for k, v in user.items():
             if isinstance(v, dict) and isinstance(cfg.get(k), dict):
                 cfg[k].update(v)
@@ -86,25 +88,25 @@ def validate_config(cfg: dict) -> list[str]:
     """Return actionable errors for values that would otherwise fail mid-run."""
     errors = []
     if not _is_path_list(cfg.get("author_emails")):
-        errors.append("author_emails 必须是非空邮箱组成的字符串数组（允许整个数组为空）")
+        errors.append(m.CFG_ERR_AUTHOR_EMAILS)
     if not _is_path_list(cfg.get("only_repos", [])):
-        errors.append("only_repos 必须是路径字符串数组（允许为空）")
+        errors.append(m.CFG_ERR_ONLY_REPOS)
     for key in ("repos_root", "reports_dir"):
         if not isinstance(cfg.get(key), str) or not cfg[key].strip():
-            errors.append(f"{key} 必须是非空路径字符串")
+            errors.append(m.CFG_ERR_PATH_STRING.format(key=key))
     offset = cfg.get("utc_offset_hours", 8)
     if not _is_number(offset):
-        errors.append("utc_offset_hours 必须是数字")
+        errors.append(m.CFG_ERR_UTC_OFFSET_TYPE)
     elif not -12 <= float(offset) <= 14:
-        errors.append("utc_offset_hours 必须在 -12 到 14 之间")
+        errors.append(m.CFG_ERR_UTC_OFFSET_RANGE)
     for key, minimum in INTEGER_RANGES.items():
         value = cfg.get(key, minimum)
         if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
-            errors.append(f"{key} 必须是大于等于 {minimum} 的整数")
+            errors.append(m.CFG_ERR_INT_RANGE.format(key=key, minimum=minimum))
     for key in BOOLEAN_KEYS:
         if key in cfg and not isinstance(cfg[key], bool):
-            errors.append(f"{key} 必须是布尔值")
+            errors.append(m.CFG_ERR_BOOL.format(key=key))
     sources = cfg.get("sources")
     if not isinstance(sources, dict) or any(not isinstance(value, bool) for value in sources.values()):
-        errors.append("sources 必须是由布尔值组成的对象")
+        errors.append(m.CFG_ERR_SOURCES)
     return errors

@@ -122,7 +122,8 @@ def pr_record(identity="acme/node#43", commits=(), involvement=Involvement.COMMI
               "involvement": involvement,
               "associated_commits": [CommitRef(full_sha=c.full_sha, repo_path=c.repo_path,
                                                at=c.at, authored=c.authored, author=c.author,
-                                               subject=c.subject) for c in commits]}
+                                               subject=c.subject, message=c.message,
+                                               message_retrieved_at=c.message_retrieved_at) for c in commits]}
     fields.update(over)
     return PullRequest(**fields)
 

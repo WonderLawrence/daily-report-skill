@@ -58,6 +58,8 @@ class TestSessionCoverage(SessionFixture):
         self.assertEqual((diag.scanned, diag.ok_files, diag.failed_files), (2, 1, 1))
         self.assertEqual(diag.invalid_records, 1)
         self.assertEqual(render.coverage_status(diag), "部分失败")
+        issue = diag.issues[0]
+        self.assertEqual((issue.source, issue.line, issue.kind), (str(broken), 1, "invalid_json"))
 
     def test_drifted_file_detected_alongside_healthy_file(self):
         self.claude_file(claude_rows())
@@ -78,6 +80,7 @@ class TestSessionCoverage(SessionFixture):
         self.assertEqual(s.users, ["排查死锁"])
         self.assertEqual(diag.invalid_records, 1)
         self.assertEqual(diag.failed_files, 1)
+        self.assertEqual((diag.issues[0].line, diag.issues[0].kind), (3, "invalid_event"))
 
     def test_missing_timestamp_in_partial_file_is_reported(self):
         rows = claude_rows()
@@ -87,6 +90,21 @@ class TestSessionCoverage(SessionFixture):
         (s,) = source_sessions("claude", PERIOD, diag)
         self.assertEqual(s.users, ["排查死锁"])
         self.assertEqual(diag.failed_files, 1)
+        self.assertEqual((diag.issues[0].line, diag.issues[0].kind), (2, "missing_timestamp"))
+
+    def test_diagnostic_locators_are_bounded_across_files_but_counts_are_not(self):
+        for number in range(3):
+            write_jsonl(self.home / f".claude/projects/-demo/broken-{number}.jsonl",
+                        [*claude_rows(), *([[]] * 15)])
+        diag = SessionDiagnostics()
+        source_sessions("claude", PERIOD, diag)
+        self.assertEqual((diag.invalid_records, diag.failed_files, len(diag.issues)), (45, 3, 20))
+        self.assertEqual(diag.issues[-1].line, 7)
+        self.assertTrue(diag.issues[-1].source.endswith("broken-1.jsonl"))
+        serialized = evidence.json_evidence(diag, False)
+        self.assertEqual(serialized["issues"][0]["kind"], "invalid_record")
+        output = render.render(make_report(diagnostics={"claude": diag}))
+        self.assertIn("broken-1.jsonl:7 · invalid_record", output)
 
     def test_git_read_failure_is_not_reported_as_no_work(self):
         diag = GitDiagnostics(scanned=1)
@@ -301,7 +319,7 @@ class TestEvidenceSnapshots(SessionFixture):
         original = saved.read_text()
         self.assertEqual(len(json.loads(original)["sessions"]), 1)
         source.unlink()
-        r = self.cli("--force", "--keep", "1")
+        r = self.cli("--overwrite", "--keep", "1")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("sessions 1 → 0", r.stderr)
         self.assertEqual(saved.read_text(), original)
@@ -317,37 +335,38 @@ class TestEvidenceSnapshots(SessionFixture):
                                                    make_commit("feat: b", full_sha="b" * 40)]))
         second = render.render(make_report(commits=[make_commit("feat: a", full_sha="a" * 40)]))
         path = self.home / "latest.md"
-        self.assertIsNone(evidence.write_evidence(path, first, False))
-        self.assertIsNone(evidence.write_evidence(path, second, True))
+        evidence.write_evidence(path, first, False)
+        evidence.write_evidence(path, second, True)
         self.assertIn("commits 2 → 1", path.read_text())
 
     def test_unserializable_evidence_fails_before_touching_the_filesystem(self):
         """A payload json cannot encode must not produce a traceback or a stray snapshot."""
         path = self.home / "latest.md"
-        error = evidence.write_evidence(path, "text", False, {"bad": object()})
-        self.assertIn("无法序列化结构化证据", error)
+        with self.assertRaisesRegex(evidence.EvidenceWriteError, "无法序列化结构化证据"):
+            evidence.write_evidence(path, "text", False, {"bad": object()})
         self.assertFalse(path.exists())
         self.assertFalse((self.home / ".history").exists())
 
     def test_refusing_overwrite_has_no_side_effects(self):
         path = self.home / "old.md"
         path.write_text("old")
-        self.assertIsNotNone(evidence.write_evidence(path, "new", False))
+        with self.assertRaisesRegex(evidence.EvidenceWriteError, "--overwrite"):
+            evidence.write_evidence(path, "new", False)
         self.assertEqual(path.read_text(), "old")
         self.assertFalse((self.home / ".history").exists())
 
     def test_failed_publish_preserves_existing_evidence(self):
         path = self.home / "old.md"
         path.write_text("old evidence")
-        with patch.object(evidence.os, "replace", side_effect=OSError("fixture failure")):
-            error = evidence.write_evidence(path, "new evidence", True, {"sessions": []})
-        self.assertIsNotNone(error)
+        with patch.object(evidence.os, "replace", side_effect=OSError("fixture failure")), \
+             self.assertRaisesRegex(evidence.EvidenceWriteError, "无法写入"):
+            evidence.write_evidence(path, "new evidence", True, {"sessions": []})
         self.assertEqual(path.read_text(), "old evidence")
         self.assertEqual(next(self.home.glob(".history/*/*/previous.md")).read_text(), "old evidence")
 
     def test_retention_of_latest_views_does_not_delete_archives(self):
         for name in ("a.md", "b.md"):
-            self.assertIsNone(evidence.write_evidence(self.home / name, name, False))
+            evidence.write_evidence(self.home / name, name, False)
         evidence.prune_evidence(self.home, 1)
         self.assertEqual(len(list(self.home.glob("*.md"))), 1)
         self.assertEqual(len(list(self.home.glob(".history/*/*/evidence.md"))), 2)

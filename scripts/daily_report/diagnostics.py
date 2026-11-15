@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
 
+from . import limits
+
 
 @dataclass
 class SourceDiagnostics:
@@ -68,6 +70,36 @@ class GitDiagnostics(SourceDiagnostics):
         return bool(self.fetch_failed)
 
 
+class IssueKind:
+    """What went wrong at a session-file location; the values are the on-disk form.
+
+    Rendering displays these verbatim, so the strings are also the user-facing categories.
+    """
+
+    STAT_ERROR = "stat_error"                    # stat() failed on the file
+    INVALID_JSON = "invalid_json"                # A line failed json.loads
+    INVALID_RECORD = "invalid_record"            # Parsed, but not a JSON object
+    DECOMPRESSION_ERROR = "decompression_error"  # zstd non-zero exit
+    READ_ERROR = "read_error"                    # OSError or UnicodeError on the stream
+    MISSING_TIMESTAMP = "missing_timestamp"      # Record carries content but no usable time
+    UNPARSED_MESSAGE = "unparsed_message"        # Known record type with unsupported shape
+    INVALID_EVENT = "invalid_event"              # Extractor raised on a malformed record
+    UNRECOGNIZED_FILE = "unrecognized_file"      # File had records but produced no events
+
+
+@dataclass
+class SessionIssue:
+    """A bounded diagnostic locator, never a copy of private message content."""
+
+    source: str
+    line: int
+    kind: str                                    # One of IssueKind's values
+    record_type: str = ""
+
+
+SESSION_ISSUE_LIMIT = 20
+
+
 @dataclass
 class SessionDiagnostics(SourceDiagnostics):
     """Session side: parse progress and scope filtering; the summary budget drops nothing."""
@@ -83,6 +115,17 @@ class SessionDiagnostics(SourceDiagnostics):
     user_messages: int = 0          # Extracted text events, before project scope filtering
     assistant_messages: int = 0
     unparsed_messages: int = 0      # Unsupported message format or unreadable content blocks
+    issues: list[SessionIssue] = field(default_factory=list)  # First 20 locators; counts are uncapped
+
+    def note_issue(self, source: str, line: int, kind: str, record_type: str = "") -> None:
+        if len(self.issues) < SESSION_ISSUE_LIMIT:
+            self.issues.append(SessionIssue(source, line, kind,
+                                            record_type[:limits.ISSUE_RECORD_TYPE]))
+
+    def merge(self, other: SourceDiagnostics) -> None:
+        super().merge(other)
+        if isinstance(other, SessionDiagnostics):
+            self.issues.extend(other.issues[:SESSION_ISSUE_LIMIT - len(self.issues)])
 
     @property
     def has_records(self) -> bool:

@@ -11,8 +11,10 @@ from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
+from . import limits
 from .gitlog import git_patch_id
-from .models import Commit, Session
+from .models import Commit, EventKind, Session
+from .text import substantive_text
 
 COMMIT_RE = re.compile(r"^(?P<type>[A-Za-z]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<rest>.*)$")
 
@@ -52,7 +54,7 @@ def collapse_duplicates(commits: list[Commit]) -> tuple[list[Commit], int]:
     return shown, extras
 
 
-def scope_summary(commits: list[Commit], top: int = 8) -> list[tuple[str, int, list[tuple[str, int]]]]:
+def scope_summary(commits: list[Commit]) -> list[tuple[str, int, list[tuple[str, int]]]]:
     """Cluster by conventional commit scope to give topic grouping a starting point."""
     per_scope: dict[str, Counter] = {}
     for commit in commits:
@@ -60,9 +62,10 @@ def scope_summary(commits: list[Commit], top: int = 8) -> list[tuple[str, int, l
         typ = (m.group("type").lower() if m else "other")
         scope = (m.group("scope") if m and m.group("scope") else "(无 scope)").strip()
         per_scope.setdefault(scope, Counter())[typ] += 1
-    rows = [(s, sum(cnt.values()), cnt.most_common(6)) for s, cnt in per_scope.items()]
+    rows = [(s, sum(cnt.values()), cnt.most_common(limits.TOPIC_TYPES))
+            for s, cnt in per_scope.items()]
     rows.sort(key=lambda r: -r[1])
-    return rows[:top]
+    return rows[:limits.TOPIC_SCOPES]
 
 
 def _revert_candidates(commit: Commit, commits: list[Commit],
@@ -124,16 +127,24 @@ def link_sessions(sessions: list[Session], commits: list[Commit]) -> None:
                 if commit.full_sha not in seen:
                     seen.add(commit.full_sha)
                     hits.append(commit)
-        session.related = hits[:3]
+        session.related = hits[:limits.RELATED_COMMITS]
 
 
 def mark_near_duplicates(sessions: list[Session]) -> None:
-    """Sessions sharing an opening prompt: never merged (they may differ), only flagged."""
+    """Flag identical substantive requests, never shared prefixes or runtime wrappers.
+
+    Use full events because `users` contains truncated summaries. Matching requests
+    suggest a relation only; sessions are never merged or discarded here.
+    """
     groups: dict[tuple, list[Session]] = {}
     for session in sessions:
-        if not session.users:
+        session.dup_n = 0
+        opening = next((" ".join(event.text.split()) for event in session.events
+                        if event.kind == EventKind.USER_REQUEST
+                        and substantive_text(event.text)), None)
+        if opening is None:
             continue
-        groups.setdefault((session.agent, session.project, session.users[0][:60]),
+        groups.setdefault((session.agent, session.project, opening),
                           []).append(session)
     for group in groups.values():
         if len(group) > 1:

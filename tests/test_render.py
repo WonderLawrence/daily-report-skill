@@ -90,9 +90,9 @@ class TestRecordShapes(unittest.TestCase):
         """PeriodCommit inherits CommitRef, so the reference fields exist in one place only."""
         ref = CommitRef(full_sha="a" * 40, repo_path="/p", at="t", authored="t",
                         author="me", subject="s")
-        commit = PeriodCommit(**vars(ref), message_status=MessageStatus.OK, message="body")
+        commit = PeriodCommit(**(vars(ref) | {"message": "body"}), message_status=MessageStatus.OK)
         self.assertIsInstance(commit, CommitRef)
-        self.assertEqual([f.name for f in dataclasses.fields(commit)][:6],
+        self.assertEqual([f.name for f in dataclasses.fields(commit)][:len(dataclasses.fields(ref))],
                          [f.name for f in dataclasses.fields(ref)])
 
 class TestShortId(unittest.TestCase):

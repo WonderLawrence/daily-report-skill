@@ -16,9 +16,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+from . import limits
+from . import messages as m
 from .analysis import link_sessions, mark_near_duplicates, select_session_details
-from .diagnostics import SessionDiagnostics, SourceDiagnostics
-from .models import Commit, Event, Session
+from .diagnostics import IssueKind, SessionDiagnostics, SourceDiagnostics
+from .models import Commit, Event, EventKind, Session
 from .session_events import record_cwd, record_events, record_timestamp
 from .text import one_line
 from .timewindow import Period
@@ -123,6 +125,7 @@ def _scan_candidate(path: Path, period: Period, diag: SessionDiagnostics) -> boo
     if mtime is None:
         diag.scanned += 1
         diag.failed_files += 1
+        diag.note_issue(str(path), 0, IssueKind.STAT_ERROR)
         return False
     if mtime < period.start.timestamp() - 86400:
         return False
@@ -153,26 +156,30 @@ def session_records(path: Path, counters: SessionDiagnostics):
                     continue
                 try:
                     row = json.loads(line)
-                    if not isinstance(row, dict):
-                        raise ValueError("record must be an object")
                 except (ValueError, TypeError):
                     counters.invalid_records += 1
+                    counters.note_issue(str(path), line_no, IssueKind.INVALID_JSON)
+                    continue
+                if not isinstance(row, dict):
+                    counters.invalid_records += 1
+                    counters.note_issue(str(path), line_no, IssueKind.INVALID_RECORD)
                     continue
                 yield line_no, row
         finally:
             stream.close()
             if proc is not None and proc.wait() != 0:
                 counters.read_errors += 1
+                counters.note_issue(str(path), 0, IssueKind.DECOMPRESSION_ERROR)
     except (OSError, UnicodeError):
         counters.read_errors += 1
+        counters.note_issue(str(path), 0, IssueKind.READ_ERROR)
         if proc is not None:
             proc.kill()
             proc.wait()
 
 
-def _tool_paths(event: Event) -> list[str]:
-    """File paths in tool call arguments, used for the weak link to commits."""
-    args = json.loads(event.text).get("input")
+def _tool_paths(args) -> list[str]:
+    """File paths in a tool call's `input` value; also tolerates a JSON-string input."""
     if isinstance(args, str):
         try:
             args = json.loads(args)
@@ -201,13 +208,17 @@ class _Draft:
 
     def add(self, event: Event) -> None:
         self.events.append(event)
-        if event.kind == "user_request":
-            self.users.append(one_line(event.text, 220))
-        elif event.kind == "assistant_statement":
-            self.concl.append(one_line(event.text, 260))
-        elif event.kind == "tool_call":
-            self.tools[json.loads(event.text).get("name") or "?"] += 1
-            self.files.update(_tool_paths(event))
+        if event.kind == EventKind.USER_REQUEST:
+            self.users.append(one_line(event.text, limits.USER_REQUEST))
+        elif event.kind == EventKind.ASSISTANT_STATEMENT:
+            self.concl.append(one_line(event.text, limits.ASSISTANT_STATEMENT))
+        elif event.kind == EventKind.TOOL_CALL:
+            # Parse once: the tool_call payload is {"name": ..., "input": ...}, serialized by
+            # session_events._Collector. Re-parsing it twice (name + paths) was the one open
+            # hot-path waste on this side.
+            payload = json.loads(event.text)
+            self.tools[payload.get("name") or "?"] += 1
+            self.files.update(_tool_paths(payload.get("input")))
 
 
 def parse_session_file(path: Path, agent: str, period: Period, diag: SessionDiagnostics,
@@ -217,6 +228,7 @@ def parse_session_file(path: Path, agent: str, period: Period, diag: SessionDiag
     cwd = None
     for line_no, row in session_records(path, local):
         cwd = cwd or record_cwd(row, agent)
+        record_type = row.get("type") if isinstance(row.get("type"), str) else ""
         ts = record_timestamp(row, agent, period.tz)
         if ts is None:
             try:
@@ -225,8 +237,12 @@ def parse_session_file(path: Path, agent: str, period: Period, diag: SessionDiag
                 local.unparsed_messages += probe.unparsed_messages
                 if extracted or probe.unparsed_messages:
                     local.invalid_records += 1
+                    local.note_issue(str(path), line_no, IssueKind.MISSING_TIMESTAMP, record_type)
+                if probe.unparsed_messages:
+                    local.note_issue(str(path), line_no, IssueKind.UNPARSED_MESSAGE, record_type)
             except (TypeError, AttributeError, ValueError):
                 local.invalid_records += 1
+                local.note_issue(str(path), line_no, IssueKind.INVALID_EVENT, record_type)
             continue
         local.timestamps += 1
         if not period.contains(ts):
@@ -234,9 +250,13 @@ def parse_session_file(path: Path, agent: str, period: Period, diag: SessionDiag
         local.events += 1
         draft.observe(ts)
         try:
+            unparsed_before = local.unparsed_messages
             extracted = record_events(row, agent, local)
+            if local.unparsed_messages > unparsed_before:
+                local.note_issue(str(path), line_no, IssueKind.UNPARSED_MESSAGE, record_type)
         except (TypeError, AttributeError, ValueError):
             local.invalid_records += 1
+            local.note_issue(str(path), line_no, IssueKind.INVALID_EVENT, record_type)
             continue
         for event in extracted:
             event.at, event.source, event.line = ts, str(path), line_no
@@ -247,6 +267,7 @@ def parse_session_file(path: Path, agent: str, period: Period, diag: SessionDiag
         diag.failed_files += 1
         if unknown and not local.read_errors:
             diag.unrecognized_files += 1
+            diag.note_issue(str(path), 0, IssueKind.UNRECOGNIZED_FILE)
     else:
         diag.ok_files += 1
     if not draft.events:
@@ -254,7 +275,8 @@ def parse_session_file(path: Path, agent: str, period: Period, diag: SessionDiag
     return Session(
         agent=agent, project=cwd if isinstance(cwd, str) and cwd else fallback,
         id=session_id if session_id is not None else path.stem,
-        start=draft.first, end=draft.last, users=draft.users, concl=draft.concl[-3:],
+        start=draft.first, end=draft.last, users=draft.users,
+        concl=draft.concl[-limits.CONCL_TAIL:],
         tools=draft.tools, files=draft.files, steps=sum(draft.tools.values()),
         events=draft.events, source=str(path))
 
@@ -268,8 +290,8 @@ def scan_sessions(source: AgentSource, period: Period,
         return []
     if source.requires and not shutil.which(source.requires):
         diag.unavailable = True
-        print(f"[note] 未找到 {source.requires}，跳过 {source.name.upper()} 会话"
-              f"（brew install {source.requires}）", file=sys.stderr)
+        print(m.LOG_SESSION_SOURCE_MISSING.format(
+            tool=source.requires, source=source.name.upper()), file=sys.stderr)
         return []
     found = []
     for path in sorted(base.glob(source.pattern)):
@@ -289,15 +311,16 @@ def warn_format_drift(name: str, location: str, diag: SessionDiagnostics, found:
     Detect it as "files touched but no events" or "events parsed but nothing extracted".
     """
     if diag.unparsed_messages:
-        format_hint = "；Codex 文字仅支持 response_item/message" if name == "codex" else ""
-        print(f"[warn] {name}: {diag.unparsed_messages} 条文字消息未能完整解析；"
-              f"格式不支持或内容损坏，检查 {location}{format_hint}。已保留可读内容及工具记录", file=sys.stderr)
+        hint = m.LOG_SESSION_CODEX_HINT if name == "codex" else ""
+        print(m.LOG_SESSION_UNPARSED.format(
+            name=name, count=diag.unparsed_messages, location=location, hint=hint),
+              file=sys.stderr)
     if diag.files and not diag.events:
-        print(f"[warn] {name}: 窗口内有 {diag.files} 个会话文件被修改，但没解析出任何事件；"
-              f"会话格式可能变了，检查 {location}。这不代表当天没有会话", file=sys.stderr)
+        print(m.LOG_SESSION_NO_EVENTS.format(name=name, count=diag.files, location=location),
+              file=sys.stderr)
     elif diag.events and not found:
-        print(f"[warn] {name}: 解析到 {diag.events} 条事件，但没提取出任何用户消息或工具调用；"
-              f"会话格式可能变了，检查 {location}", file=sys.stderr)
+        print(m.LOG_SESSION_NO_EXTRACT.format(name=name, count=diag.events, location=location),
+              file=sys.stderr)
 
 
 def project_in_scope(project: str, roots: list[Path]) -> bool | None:
@@ -322,10 +345,11 @@ def _merge_fragments(sessions: list[Session]) -> list[Session]:
         kept.end = max(kept.end, session.end)
         kept.events = sorted(kept.events + session.events,
                              key=lambda event: (event.at, event.source, event.line))
-        kept.users = [one_line(event.text, 220) for event in kept.events
-                      if event.kind == "user_request"]
-        kept.concl = [one_line(event.text, 260) for event in kept.events
-                      if event.kind == "assistant_statement"][-3:]
+        kept.users = [one_line(event.text, limits.USER_REQUEST) for event in kept.events
+                      if event.kind == EventKind.USER_REQUEST]
+        kept.concl = [one_line(event.text, limits.ASSISTANT_STATEMENT)
+                      for event in kept.events
+                      if event.kind == EventKind.ASSISTANT_STATEMENT][-limits.CONCL_TAIL:]
         kept.tools.update(session.tools)
         kept.files.update(session.files)
         kept.steps += session.steps
@@ -345,11 +369,10 @@ def collect_sessions(period: Period, enabled: set[str], commits: list[Commit], l
             diag.disabled = True
             continue
         found = source.collect(period, diag)
-        diag.sessions = len(found)
         warn_format_drift(source.name, source.location, diag, len(found))
         if diag.failed_files:
-            print(f"[warn] {source.name}: {diag.failed_files} 个文件读取或解析不完整；"
-                  "详见证据包采集诊断", file=sys.stderr)
+            print(m.LOG_SESSION_PARTIAL.format(name=source.name, count=diag.failed_files),
+                  file=sys.stderr)
         for session in found:
             included = (project_in_scope(session.project, project_roots)
                         if project_roots is not None else True)

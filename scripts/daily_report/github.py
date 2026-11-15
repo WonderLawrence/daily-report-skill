@@ -4,8 +4,8 @@ Two levels: `involves:<login>` searches PRs updated in the window (first level),
 PR's commits are read and filtered by author and committer date (second level).
 `involves:` matches author/assignee/mentions/commenter but not commit authorship, so a PR
 opened by someone else that contains the user's commits without any comment from them is
-invisible; the diagnostics say so. Descriptions are loaded later, by pr_details, once the
-work items have been selected.
+invisible; the diagnostics say so. Descriptions are loaded later, by `github_details`,
+once the work items have been selected.
 
 Relies on an already authenticated gh CLI: it never logs in, writes to GitHub or stores
 credentials.
@@ -22,11 +22,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
+from . import messages as m
 from .diagnostics import CoverageStatus, PullRequestDiagnostics
 from .gitlog import remote_urls
-from .models import (Commit, CommitRef, Identity, Involvement, MessageStatus,
-                     PeriodCommit, PullRequest,
-                     PullRequestDetails)
+from .models import Commit, CommitRef, Identity, Involvement, PullRequest
 from .timewindow import Period, parse_ts
 
 
@@ -74,11 +73,12 @@ def api(endpoint: str, timeout: int, paginate: bool = False, item_key: str | Non
         result = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL,
                                 timeout=timeout, env=dict(os.environ, GH_PROMPT_DISABLED="1"))
     except (OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
-        raise GitHubError("GitHub 查询无法执行或超时", stop=True) from exc
+        raise GitHubError(m.GH_ERR_QUERY_FAILED, stop=True) from exc
     if result.returncode:
         status = re.search(r"HTTP (\d{3})", result.stderr)
         code = status.group(1) if status else "unknown"
-        raise GitHubError(f"GitHub 查询失败（HTTP {code}）", stop=code in ("401", "403", "429", "unknown"))
+        raise GitHubError(m.GH_ERR_HTTP_STATUS.format(code=code),
+                          stop=code in ("401", "403", "429", "unknown"))
     try:
         data = json.loads(result.stdout)
         if item_key is not None:
@@ -92,7 +92,7 @@ def api(endpoint: str, timeout: int, paginate: bool = False, item_key: str | Non
             return [item for page in data for item in page]
         return data
     except (ValueError, TypeError) as exc:
-        raise GitHubError("GitHub 返回了无法识别的响应", stop=True) from exc
+        raise GitHubError(m.GH_ERR_UNRECOGNIZED, stop=True) from exc
 
 
 def repo_index(repos: list[Path], timeout: int) -> dict[str, Path]:
@@ -168,9 +168,9 @@ def _search_candidates(period: Period, login: str | None, repositories: list[str
     for index, repository in enumerate(repositories):
         if blocked or diag.queries >= max_queries:
             diag.searches_skipped = len(repositories) - index
-            _note(diag, f"另有 {diag.searches_skipped} 个仓库搜索未执行")
+            _note(diag, m.GH_DETAIL_SEARCHES_SKIPPED.format(count=diag.searches_skipped))
             break
-        label = repository or "全部仓库"
+        label = repository or m.GH_SEARCH_LABEL_ALL
         page, received = 1, 0
         while True:
             diag.queries += 1
@@ -180,7 +180,7 @@ def _search_candidates(period: Period, login: str | None, repositories: list[str
             except GitHubError as exc:
                 diag.failures += 1
                 diag.search_truncated = True
-                _note(diag, f"{label} 第 {page} 页：{exc}")
+                _note(diag, m.GH_DETAIL_SEARCH_PAGE_ERROR.format(label=label, page=page, error=exc))
                 blocked = exc.stop
                 break
             succeeded = True
@@ -196,15 +196,17 @@ def _search_candidates(period: Period, login: str | None, repositories: list[str
                     items.append(item)
             if incomplete:
                 diag.search_incomplete = True
-                _note(diag, f"{label} 第 {page} 页：GitHub 声明搜索结果不完整")
+                _note(diag, m.GH_DETAIL_SEARCH_INCOMPLETE.format(label=label, page=page))
             if received >= total:
                 break
             if (len(batch) < SEARCH_LIMIT or received >= SEARCH_MAX_RESULTS
                     or diag.queries >= max_queries):
                 diag.search_truncated = True
-                reason = ("返回短页" if len(batch) < SEARCH_LIMIT else
-                          "达到搜索上限" if received >= SEARCH_MAX_RESULTS else "查询额度不足")
-                _note(diag, f"{label}：平台声明 {total} 条结果，仅读取 {received} 条（{reason}）")
+                reason = (m.GH_REASON_SHORT_PAGE if len(batch) < SEARCH_LIMIT else
+                          m.GH_REASON_HIT_LIMIT if received >= SEARCH_MAX_RESULTS
+                          else m.GH_REASON_QUERY_BUDGET)
+                _note(diag, m.GH_DETAIL_SEARCH_TRUNCATED.format(
+                    label=label, total=total, received=received, reason=reason))
                 break
             page += 1
     if diag.failures and not succeeded:
@@ -253,7 +255,8 @@ def _build_commit(raw: dict, repository: str, repo_index: dict[str, Path],
         repo_path=str(local) if local else "", full_sha=sha, sha=sha[:7],
         at=landed.isoformat(), authored=written.isoformat(),
         author=f"{author.get('name', '')} <{author.get('email', '')}>".strip(),
-        subject=subject, revert=subject.startswith('Revert "'))
+        subject=subject, revert=subject.startswith('Revert "'),
+        message=message, message_retrieved_at=now())
 
 
 def _screen(item: dict, repo_index: dict[str, Path], scoped: bool,
@@ -313,18 +316,18 @@ def discover_pull_requests(period: Period, identity: Identity,
         return [], [], diag
     if scoped and not repo_index:
         diag.status = CoverageStatus.UNAVAILABLE
-        diag.detail = "所选仓库没有可识别的 GitHub remote，未执行 PR 搜索"
+        diag.detail = m.GH_DETAIL_REPO_NO_REMOTE
         return [], [], diag
     if not shutil.which("gh"):
         diag.status = CoverageStatus.UNAVAILABLE
-        diag.detail = "未安装 gh，无法按 PR 发现本期工作"
+        diag.detail = m.GH_DETAIL_GH_MISSING
         return [], [], diag
 
     # Resolve the login on a copy: discovery must not mutate its caller's identity
     identity = replace(identity, login=viewer_login(timeout))
     if not identity.login:
-        diag.detail = ("无法确认登录账号，PR 内提交只按显式作者正则匹配" if identity.author_explicit
-                       else "无法确认登录账号，PR 内提交只按配置邮箱匹配")
+        diag.detail = (m.GH_DETAIL_NO_LOGIN_EXPLICIT if identity.author_explicit
+                       else m.GH_DETAIL_NO_LOGIN_EMAILS)
     repositories = sorted(repo_index) if scoped else [None]
     items, blocked = _search_candidates(period, identity.login, repositories,
                                         timeout, max_queries, diag)
@@ -353,8 +356,9 @@ def discover_pull_requests(period: Period, identity: Identity,
             record.involvement = Involvement.FAILED
             continue
         if len(raw_commits) >= 250:
+            record.commit_list_capped = True
             diag.commit_lists_capped += 1
-            _note(diag, f"{record.id} 的提交列表达到 250 条，可能还有未返回的提交")
+            _note(diag, m.GH_DETAIL_COMMIT_LIST_CAPPED.format(pr_id=record.id))
         for commit in _own_commits(raw_commits, repository, identity, period,
                                    repo_index, diag):
             kept = commits.setdefault(commit.full_sha, commit)
@@ -376,69 +380,7 @@ def discover_pull_requests(period: Period, identity: Identity,
 
 
 def _commit_reference(commit: Commit) -> CommitRef:
-    """PR evidence keeps only what locates a commit; change content is never copied."""
+    """Keep the commit locator and API message; change content is never copied."""
     return CommitRef(full_sha=commit.full_sha, repo_path=commit.repo_path, at=commit.at,
-                     authored=commit.authored, author=commit.author, subject=commit.subject)
-
-
-def _period_commit(ref: CommitRef, timeout: int) -> PeriodCommit:
-    """Extend a CommitRef with its full commit message, or carry the gap forward.
-
-    The change itself is reviewed on demand by the caller and is never prefetched.
-    """
-    base = PeriodCommit(**vars(ref), message_status=MessageStatus.FAILED)
-    if not SHA.fullmatch(ref.full_sha):
-        base.message_error = "无效的提交 SHA"
-        return base
-    try:
-        result = subprocess.run(["git", "-C", ref.repo_path, "show", "-s",
-                                 "--format=%B", "--no-color", ref.full_sha, "--"],
-                                capture_output=True, text=True, timeout=timeout)
-    except (OSError, UnicodeError, subprocess.TimeoutExpired):
-        base.message_error = "读取本地提交信息失败或超时"
-        return base
-    if result.returncode:
-        base.message_error = "本地提交不可读"
-        return base
-    base.message_status = MessageStatus.OK
-    base.message = result.stdout.strip()
-    return base
-
-
-_DETAIL_LIMITATIONS = (
-    "Description 和状态为读取时的版本，不是历史快照。",
-    "区间按提交的 committer date 筛选；rebase/cherry-pick 不等于新增工作。",
-    "下列是平台关联的本人提交及其 commit message，不是整个 PR 的成果，"
-    "也不证明本期首次加入 PR。",
-    "commit message 是作者自述；不足以说明改动时按 SHA 自行 review 本地 diff。",
-    "同一提交可能关联多个 PR；汇报时去重，不将关联视为独占归属。",
-)
-
-
-def selected_details(pr: PullRequest, timeout: int = 30) -> PullRequestDetails:
-    if not valid_repository(pr.repository) or type(pr.number) is not int or pr.number < 1:
-        raise GitHubError("无效的 PR 标识")
-    data = api(f"repos/{pr.repository}/pulls/{pr.number}", timeout)
-    if not isinstance(data, dict) or not isinstance(data.get("title"), str):
-        raise GitHubError("PR 详情格式不完整")
-    if data.get("body") is not None and not isinstance(data["body"], str):
-        raise GitHubError("PR Description 格式不完整")
-    head = data.get("head") or {}
-    if not isinstance(head, dict):
-        raise GitHubError("PR head 格式不完整")
-    limitations = list(_DETAIL_LIMITATIONS)
-    if not pr.associated_commits:
-        limitations.append(
-            "原快照未发现本人区间内提交；Description 仅用于理解背景。"
-            "是否在本期参与评审或讨论，需用带时间的评审/评论记录或用户说明确认，"
-            "不能把整个 PR 的实现算作本人成果。")
-    if pr.involvement in (Involvement.UNQUERIED, Involvement.FAILED):
-        limitations.append("原快照的提交查询未完成，空提交列表不代表本期没有本人提交。")
-    return PullRequestDetails(
-        id=pr.id, url=pr.url, retrieved_at=now(), discovered_at=pr.retrieved_at,
-        title=data["title"], description=data.get("body") or "",
-        state_now=data.get("state"), merged_at=data.get("merged_at"),
-        closed_at=data.get("closed_at"), updated_at=data.get("updated_at"),
-        head_sha_now=head.get("sha"),
-        period_commits=[_period_commit(ref, timeout) for ref in pr.associated_commits],
-        limitations=limitations)
+                     authored=commit.authored, author=commit.author, subject=commit.subject,
+                     message=commit.message, message_retrieved_at=commit.message_retrieved_at)

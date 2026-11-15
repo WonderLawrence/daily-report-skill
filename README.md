@@ -1,7 +1,7 @@
 # daily-report
 
 自用的日报/周报 skill：以 **GitHub PR** 为索引采集 **本期本人提交**，加上 **Claude Code / Codex / DSH（DeepSeek Harness）会话**，结合用户补充文档产出中文日报。
-提交证据走两层遍历——先搜本期参与的 PR，再在 PR 内筛出本人、落在区间内的提交，最后回本地仓库补齐改动文件；确认工作事项后再读 PR Description 和 commit message。
+提交证据走两层遍历——先搜本期参与的 PR，再在 PR 内筛出本人、落在区间内的提交，最后回本地仓库补齐改动文件；确认工作事项后再读取 PR Description，结合 commit message 分析本期贡献。
 
 ```
 daily-report/
@@ -14,14 +14,16 @@ daily-report/
 ├── scripts/
 │   ├── collect.py              # 采集 CLI：参数定义、渲染与落盘
 │   ├── pr_details.py           # 已选 PR 详情 CLI
+│   ├── read_evidence.py        # 回执定位、按对象和字段分页读取
 │   ├── sync_install.py         # 安装差异检查、备份与同步
 │   ├── config.example.json     # 配置样例
-│   └── daily_report/           # 被两个 CLI 调用的实现模块
+│   └── daily_report/           # CLI 共用的实现模块
 │       ├── settings.py         # 参数与配置合成运行设置
 │       ├── pipeline.py         # 采集编排：Git → PR → 会话 → 工作区状态
 │       ├── config.py           # 默认值、配置加载与校验
 │       ├── models.py           # Commit / Session / Event / Identity 等记录
 │       ├── diagnostics.py      # 采集诊断字段的唯一定义
+│       ├── evidence_reader.py  # JSON 读取、字段校验与输出预算
 │       ├── gitlog.py           # 仓库发现、fetch、提交与未提交改动
 │       ├── sessions.py         # 会话扫描、解析与汇总
 │       ├── session_events.py   # 三种 agent 记录归一成事件
@@ -39,6 +41,7 @@ daily-report/
     ├── test_prs.py             # PR 两层遍历与已选 PR 详情
     ├── test_fetch.py           # 远程同步开关与失败降级（本地裸仓库）
     ├── test_evidence.py        # 覆盖诊断、来源可信度与快照
+    ├── test_reader.py          # 回执定位、字段错误、分页与正文无损读取
     ├── test_render.py          # 证据包渲染与记录形状
     ├── test_config.py          # 配置校验与采集区间
     ├── test_cli.py             # 命令行行为：参数错误、交付、脱敏、保留
@@ -115,7 +118,8 @@ python3 $S --date 2026-10-18 --days 7  # 截至指定日期的 7 天
 python3 $S --week               # 本周（周一至今天）
 python3 $S --last-week          # 上周（周一至周日）
 python3 $S --print              # 打 stdout，不落盘
-python3 $S --force              # 保存独立快照后更新最新视图（agent 重新采集时使用）
+python3 $S --json > /tmp/collection-run.json # 保存证据并返回路径、计数回执
+python3 $S --overwrite          # 允许覆盖已有证据文件，覆盖前保留旧证据快照
 python3 $S --any-author         # 不过滤作者（团队仓库慎用）
 python3 $S --no-sessions        # 只看提交
 python3 $S --only-repo ~/Project/acme-node # 只采集该仓库及其项目会话
@@ -132,6 +136,9 @@ python3 $S --max-sessions 10    # 展开 10 段详细摘要；完整索引和 JS
 
 然后在 Claude Code / Codex / DSH 里说「写今天的日报」，agent 从 [SKILL.md](SKILL.md) 按请求进入相应阶段。
 采集与证据解释见 [collection.md](references/collection.md)，确认与续写规则见 [interaction.md](references/interaction.md)，报告表达见 [writing.md](references/writing.md)。
+
+每次运行都会重新采集；`--overwrite` 只允许覆盖已有输出文件，不改变采集范围或合并新旧证据。
+`collect.py` 和 `pr_details.py` 均保留旧参数 `--force` 作为兼容别名。
 
 严格范围使用 `--only-repo`，CLI 优先于 `only_repos` 配置；`--repo` 只追加范围，与前者及非空 `only_repos` 配置互斥。
 独立 worktree 需要分别指定。范围外或项目无法确认的会话不进入证据列表，诊断保留计数。
@@ -156,15 +163,16 @@ python3 $S --max-sessions 10    # 展开 10 段详细摘要；完整索引和 JS
 
 `--no-fetch` 或 `fetch: false` 同时禁用 PR 搜索（`--prs` 不覆盖离线设置），此时没有 Git 证据，只剩会话。
 `involves:` 不含提交作者，所以「他人创建、含本人提交、本人从未留言」的 PR 查不到；未在本次 PR 检索结果中找到关联的本地提交只在诊断里留一行计数。
-初次采集保存 PR 元数据；选中后用 `pr_details.py --evidence <快照/evidence.json> --pr owner/repo#编号 --out <路径.md>` 获取 Description 与逐条 commit message，多个 PR 重复 `--pr`，更新同名证据加 `--force`。
+初次采集保存 PR 元数据；选中后用 `pr_details.py --evidence <快照/evidence.json> --pr owner/repo#编号 --out <路径.md>` 获取 Description 与逐条 commit message，多个 PR 重复 `--pr`，覆盖已有同名证据加 `--overwrite`。
 已选 PR 不要求有区间内提交；评审、讨论、仅合并活动的 PR 都可读取描述和合并时间，不影响同批其他 PR。本人本期参与的内容需另有依据。
+完整 message 优先复用发现阶段的 API 结果，缺失时依次读取本地 Git、GitHub [commit object](https://docs.github.com/en/rest/git/commits#get-a-commit-object)，并保存来源和缺口。详情结果的 `status` / `summary` 区分完整和部分读取；退出码 0 只表示保存成功。
 脚本不采集 diff：commit message 说不清改动时，由 agent 按 SHA 自行 `git show` review。
 参数、证据含义及不支持的情况见 [PR 详情采集](references/collection.md#pr-description-与本期提交)。脚本不自动登录或修改远端，真实账号连通性需在实际使用时核实。
 
 ## 定时（可选）
 
 macOS `launchd`，每天 19:00 留一份当天证据快照（会话记录会被 Claude Code 等工具定期清理，留存比事后补采可靠）。
-agent 出稿时仍会带 `--force` 重新采集。历史快照保留原始记录清理前已采到的证据，新快照反映重新采集时能读取的内容：
+agent 出稿时仍会重新采集，使用 `--overwrite` 允许更新已有证据文件。历史快照保留原始记录清理前已采到的证据，新快照反映重新采集时能读取的内容：
 
 ```bash
 mkdir -p ~/Library/LaunchAgents
@@ -198,9 +206,12 @@ launchctl load ~/Library/LaunchAgents/com.example.daily-report.plist
 `--max-sessions` 仅限制 Markdown 详细摘要，`--print` 不保存 JSON 或快照。
 `--keep` / `evidence_keep` 只清理最新视图，历史快照需自行管理，磁盘占用会随使用增长。
 字段、脱敏、重采差异和诊断解释见 [采集与证据核对](references/collection.md#输出与重采)。
+`read_evidence.py --evidence <回执.json>` 展示实际元数据，支持按 PR、会话及字段分页读取。
+参数和示例运行 `python3 scripts/read_evidence.py --help` 或 `python3 scripts/pr_details.py --help` 查看；快照使用、初筛及完整读取的约定见 [读取证据](references/collection.md#读取证据)。
 
 Codex 文字统一读取 `response_item/message` 中的 `input_text`、`output_text`、`text` 块及字符串正文。`event_msg` 文字不进入证据，遇到时报告格式不支持；其中的 token 统计等非文字事件不触发此告警。系统/开发者消息和注入上下文不当作用户请求；图片、音频不转换成文字。
 会话诊断中的 `user_messages`、`assistant_messages` 是项目范围过滤前、时间窗口内提取到的文字事件数；`unparsed_messages` 表示格式不支持或内容无法完整解析的消息数（缺少时间戳的此类消息也计入缺口）。即使工具记录正常，文字解析缺口仍会单独告警，并保留可读部分。修复解析器后，旧证据需重新采集才能补齐。
+已知运行时注入文本和 Claude API 请求副本不进入会话证据。会话错误通过 `issues` 提供有限的文件、行号和类型定位；fetch 失败保存脱敏后的 stderr 摘要。详见 [证据线索与覆盖缺口](references/collection.md#证据线索与覆盖缺口)。
 
 ## 运行环境
 

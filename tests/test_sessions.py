@@ -29,6 +29,33 @@ def codex_tool_rows():
 
 
 class TestUserText(unittest.TestCase):
+    def test_approval_transcript_blocks_are_not_reclassified_as_real_requests(self):
+        blocks = [{"type": "input_text", "text": value} for value in (
+            "检查解析器的过滤规则", "The following is the Codex agent history added since review.",
+            ">>> TRANSCRIPT DELTA START", "[1] user: copied request", "[2] tool: copied result",
+            ">>> TRANSCRIPT DELTA END", ">>> APPROVAL REQUEST START", '{"command": "fixture"}',
+            ">>> APPROVAL REQUEST END", "保留这里的真实补充请求")]
+        events = sessions.record_events(codex_message("user", blocks), "codex")
+        self.assertEqual([e.text for e in events], ["检查解析器的过滤规则 保留这里的真实补充请求"])
+        self.assertEqual(sessions.record_events(codex_message("user", blocks[1:-1]), "codex"), [])
+
+    def test_runtime_wrappers_are_filtered_without_losing_adjacent_real_requests(self):
+        wrappers = ["# AGENTS.md instructions for /demo\ncontext",
+                    "The following is the Codex agent history\napproval input",
+                    "Current runtime context.\ncontext", "Time sampled while preparing input: today"]
+        request = "检查 AGENTS.md instructions 的解析和 Current runtime context. 过滤"
+        for wrapper in wrappers:
+            for agent in ("codex", "claude-code", "dsh"):
+                with self.subTest(agent=agent, wrapper=wrapper):
+                    blocks = [{"type": "input_text" if agent == "codex" else "text", "text": value}
+                              for value in (wrapper, request)]
+                    row = (codex_message("user", blocks) if agent == "codex" else
+                           {"type": "user", "message": {"content": blocks}} if agent == "claude-code" else
+                           {"type": "user/message", "data": {"content": blocks}})
+                    self.assertEqual([e.text for e in sessions.record_events(row, agent)], [request])
+                    self.assertTrue(text.is_injected(" \n" + wrapper))
+                    self.assertFalse(text.is_injected(request))
+
     def test_visible_request_survives_injected_blocks(self):
         """IDE context and the real request share a message, so blocks are judged one by one."""
         cases = [
@@ -49,6 +76,18 @@ class TestUserText(unittest.TestCase):
 
 
 class TestClaudeSessions(SessionFixture):
+    def test_api_request_blobs_do_not_duplicate_tools_or_report_bad_timestamps(self):
+        rows = claude_rows()
+        blob = {"type": "api-request-blob", "hash": "fixture", "message": rows[1]["message"]}
+        self.claude_file([*rows, blob])
+        diag = SessionDiagnostics()
+        (session,) = source_sessions("claude", PERIOD, diag)
+        self.assertEqual([e.kind for e in session.events],
+                         ["user_request", "assistant_statement", "tool_call"])
+        self.assertEqual((diag.invalid_records, diag.failed_files, diag.ok_files), (0, 0, 1))
+        # A timestamp on a transport copy must not turn it into conversation evidence either.
+        self.assertEqual(sessions.record_events(dict(blob, timestamp=NOON.isoformat()), "claude-code"), [])
+
     def test_request_next_to_ide_block_is_kept(self):
         self.claude_file(claude_rows())
         (s,) = source_sessions("claude", PERIOD)
