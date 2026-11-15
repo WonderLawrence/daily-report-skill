@@ -1,7 +1,8 @@
 {
   "name": "daily-report-skill",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "中文日报/周报 skill：以 GitHub PR 及 Claude Code / Codex / DSH 会话为证据，生成有据可查的日报与周报。",
+  "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -12,6 +13,7 @@
   "files": [
     "SKILL.md",
     "README.md",
+    "LICENSE",
     "cordis.patch.yml",
     "lib/index.js",
     "references",
