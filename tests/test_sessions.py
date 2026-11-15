@@ -284,7 +284,7 @@ class TestDshSessions(SessionFixture):
             {"type": "user/message", "time": ms,
              "data": {"content": [IDE_BLOCK, {"type": "text", "text": "查 DSH 会话"}]}},
             {"type": "tool/call", "time": ms + 1000,
-             "data": {"name": "Read", "arguments": json.dumps({"file_path": "/demo/a.rs"})}},
+             "data": {"callId": "call-1", "name": "Read", "arguments": json.dumps({"file_path": "/demo/a.rs"})}},
         ]
         raw = "\n".join(json.dumps(r) for r in rows).encode()
         packed = subprocess.run(["zstd", "-q", "-c"], input=raw, capture_output=True, check=True).stdout

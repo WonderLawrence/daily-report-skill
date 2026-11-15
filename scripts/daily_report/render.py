@@ -34,6 +34,7 @@ from .models import (
     Report,
     Scope,
     Session,
+    valid_call_id,
 )
 from .text import one_line, short_id, substantive_text
 
@@ -88,7 +89,7 @@ def coverage_status(diag: SourceDiagnostics) -> str:
 
 def event_excerpt(event: Event, limit: int = limits.EVENT_EXCERPT) -> str:
     locator = f"{event.at:%m-%d %H:%M:%S} · {event.source}:{event.line}"
-    call = m.R_EVENT_CALL_SUFFIX.format(call_id=event.call_id) if event.call_id else ""
+    call = m.R_EVENT_CALL_SUFFIX.format(call_id=event.call_id) if valid_call_id(event.call_id) else ""
     return m.R_EVENT_LOCATOR.format(text=one_line(event.text, limit), locator=locator, call=call)
 
 
@@ -141,8 +142,8 @@ def _scope_section(scope: Scope | None) -> list[str]:
         m.R_SCOPE_SESSIONS_LINE.format(detail=", ".join(scope.sessions) if scope.sessions else uncollected),
         m.R_SCOPE_DIRTY_LINE.format(detail=m.R_SCOPE_DIRTY_YES if scope.dirty else uncollected),
     ]
-    if scope.only_repos:
-        lines.append(m.R_SCOPE_ONLY_REPOS_LINE.format(detail=", ".join(scope.only_repos)))
+    if scope.target_projects:
+        lines.append(m.R_SCOPE_TARGET_PROJECTS_LINE.format(detail=", ".join(scope.target_projects)))
     return lines + [""]
 
 
@@ -359,9 +360,9 @@ def _session_events(session: Session) -> list[str]:
         lines.append(m.R_EVENT_USER.format(excerpt=event_excerpt(event, limits.USER_REQUEST)))
     for event in [e for e in session.events if e.kind == EventKind.ASSISTANT_STATEMENT][-limits.ASSISTANT_TAIL :]:
         lines.append(m.R_EVENT_ASSISTANT.format(excerpt=event_excerpt(event)))
-    calls = {e.call_id: e for e in session.events if e.kind == EventKind.TOOL_CALL and e.call_id}
+    calls = {e.call_id: e for e in session.events if e.kind == EventKind.TOOL_CALL and valid_call_id(e.call_id)}
     for event in [e for e in session.events if e.kind == EventKind.TOOL_RESULT][-limits.TOOL_RESULT_TAIL :]:
-        if event.call_id in calls:
+        if valid_call_id(event.call_id) and event.call_id in calls:
             lines.append(m.R_EVENT_TOOL_CALL.format(excerpt=event_excerpt(calls[event.call_id])))
         lines.append(m.R_EVENT_TOOL_RESULT.format(excerpt=event_excerpt(event)))
     return lines + [m.R_EVENT_TOTAL.format(count=len(session.events))]

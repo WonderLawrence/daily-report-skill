@@ -122,7 +122,7 @@ def run_collection(settings: Settings) -> Report:
         git.commits,
         settings.sessions.limit,
         diagnostics,
-        settings.project_roots,
+        settings.target_projects,
     )
 
     now = datetime.now(settings.period.tz)
@@ -138,7 +138,7 @@ def run_collection(settings: Settings) -> Report:
         repos=sorted({path.name for path in settings.repos}) if settings.git.enabled else [],
         sessions=sorted(settings.sessions.sources),
         dirty=dirty_scanned,
-        only_repos=[str(path) for path in settings.project_roots or []],
+        target_projects=[str(path) for path in settings.target_projects or []],
     )
     return Report(
         period=settings.period,

@@ -289,6 +289,7 @@ def parse_session_file(
                 probe = SessionDiagnostics()
                 extracted = record_events(row, agent, probe)
                 local.unparsed_messages += probe.unparsed_messages
+                local.missing_call_ids += probe.missing_call_ids
                 if extracted or probe.unparsed_messages:
                     local.invalid_records += 1
                     local.note_issue(
@@ -304,6 +305,8 @@ def parse_session_file(
                         IssueKind.UNPARSED_MESSAGE,
                         record_type,
                     )
+                if probe.missing_call_ids:
+                    local.note_issue(str(path), line_no, IssueKind.MISSING_CALL_ID, record_type)
             except (TypeError, AttributeError, ValueError):
                 local.invalid_records += 1
                 local.note_issue(str(path), line_no, IssueKind.INVALID_EVENT, record_type)
@@ -315,9 +318,12 @@ def parse_session_file(
         draft.observe(ts)
         try:
             unparsed_before = local.unparsed_messages
+            missing_ids_before = local.missing_call_ids
             extracted = record_events(row, agent, local)
             if local.unparsed_messages > unparsed_before:
                 local.note_issue(str(path), line_no, IssueKind.UNPARSED_MESSAGE, record_type)
+            if local.missing_call_ids > missing_ids_before:
+                local.note_issue(str(path), line_no, IssueKind.MISSING_CALL_ID, record_type)
         except (TypeError, AttributeError, ValueError):
             local.invalid_records += 1
             local.note_issue(str(path), line_no, IssueKind.INVALID_EVENT, record_type)
@@ -327,7 +333,7 @@ def parse_session_file(
             draft.add(event)
     diag.merge(local)
     unknown = not local.timestamps or (local.events and not draft.events)
-    if local.read_errors or local.invalid_records or local.unparsed_messages or unknown:
+    if local.read_errors or local.invalid_records or local.unparsed_messages or local.missing_call_ids or unknown:
         diag.failed_files += 1
         if unknown and not local.read_errors:
             diag.unrecognized_files += 1
@@ -460,7 +466,7 @@ def collect_sessions(
     commits: list[Commit],
     limit: int,
     diagnostics: dict[str, SourceDiagnostics] | None = None,
-    project_roots: list[Path] | None = None,
+    target_projects: list[Path] | None = None,
 ) -> tuple[list[Session], bool]:
     """Collect sessions per source; out of scope or unidentifiable ones only
     feed diagnostics.
@@ -481,7 +487,7 @@ def collect_sessions(
                 file=sys.stderr,
             )
         for session in found:
-            included = project_in_scope(session.project, project_roots) if project_roots is not None else True
+            included = project_in_scope(session.project, target_projects) if target_projects is not None else True
             if included:
                 sessions.append(session)
             elif included is None:

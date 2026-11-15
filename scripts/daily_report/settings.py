@@ -95,7 +95,7 @@ class Settings:
     identity: Identity
     repos: list[Path] = field(default_factory=list)
     repo_index: dict[str, Path] = field(default_factory=dict)
-    project_roots: list[Path] | None = None  # --only-repo / only_repos: a strict scope
+    target_projects: list[Path] | None = None  # --target-project / target_projects: a strict scope
     repos_root: Path = Path()
     author_emails: list[str] = field(default_factory=list)
     git: GitOptions = GitOptions()
@@ -109,7 +109,7 @@ class Settings:
 
     @property
     def scoped(self) -> bool:
-        return self.project_roots is not None
+        return self.target_projects is not None
 
 
 def _pick(cli_value, config_value):
@@ -118,16 +118,16 @@ def _pick(cli_value, config_value):
 
 
 def _resolve_scope(args, cfg: dict, git_enabled: bool) -> tuple[list[Path], list[Path] | None]:
-    """--only-repo / only_repos is a strict scope; --repo only appends. They are
+    """--target-project / target_projects is a strict scope; --repo only appends. They are
     exclusive.
     """
-    only = args.only_repo if args.only_repo is not None else cfg["only_repos"]
-    if only and args.repo:
+    targets = args.target_project if args.target_project is not None else cfg["target_projects"]
+    if targets and args.repo:
         raise ValueError(m.CLI_ERR_REPO_CONFLICT)
-    roots = list(dict.fromkeys(Path(p).expanduser().resolve() for p in only)) if only else None
+    roots = list(dict.fromkeys(Path(p).expanduser().resolve() for p in targets)) if targets else None
     for path in roots or []:
         if not path.is_dir():
-            raise ValueError(m.CLI_ERR_ONLY_REPO_NOT_DIR.format(path=path))
+            raise ValueError(m.CLI_ERR_TARGET_PROJECT_NOT_DIR.format(path=path))
         if git_enabled:
             result = subprocess.run(
                 ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
@@ -136,7 +136,7 @@ def _resolve_scope(args, cfg: dict, git_enabled: bool) -> tuple[list[Path], list
                 check=False,
             )
             if result.returncode or Path(result.stdout.strip()).resolve() != path:
-                raise ValueError(m.CLI_ERR_ONLY_REPO_NOT_REPO.format(path=path))
+                raise ValueError(m.CLI_ERR_TARGET_PROJECT_NOT_REPO.format(path=path))
     if not git_enabled:
         return [], roots
     repos = (
@@ -198,7 +198,7 @@ def resolve_settings(args) -> Settings:
     git_enabled = not args.no_git and sources.get("git", True)
     if git_enabled and not shutil.which("git"):
         raise MissingGit(m.MISSING_GIT)
-    repos, project_roots = _resolve_scope(args, cfg, git_enabled)
+    repos, target_projects = _resolve_scope(args, cfg, git_enabled)
     fetch = _pick(args.fetch, cfg["fetch"])
     github_timeout = cfg["github_timeout_seconds"]
 
@@ -206,7 +206,7 @@ def resolve_settings(args) -> Settings:
         period=period,
         identity=identity,
         repos=repos,
-        project_roots=project_roots,
+        target_projects=target_projects,
         repo_index=index_repositories(repos, github_timeout) if git_enabled else {},
         repos_root=Path(args.repos_root or cfg["repos_root"]).expanduser().resolve(),
         author_emails=cfg["author_emails"],

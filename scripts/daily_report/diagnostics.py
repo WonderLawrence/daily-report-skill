@@ -92,6 +92,7 @@ class IssueKind:
     READ_ERROR = "read_error"  # OSError or UnicodeError on the stream
     MISSING_TIMESTAMP = "missing_timestamp"  # Record carries content but no usable time
     UNPARSED_MESSAGE = "unparsed_message"  # Known record type with unsupported shape
+    MISSING_CALL_ID = "missing_call_id"  # Retained tool event lacks a usable association ID
     INVALID_EVENT = "invalid_event"  # Extractor raised on a malformed record
     UNRECOGNIZED_FILE = "unrecognized_file"  # File had records but produced no events
 
@@ -126,6 +127,7 @@ class SessionDiagnostics(SourceDiagnostics):
     user_messages: int = 0  # Extracted text events, before project scope filtering
     assistant_messages: int = 0
     unparsed_messages: int = 0  # Unsupported message format or unreadable content blocks
+    missing_call_ids: int = 0  # Retained tool events with missing or unusable IDs
     issues: list[SessionIssue] = field(default_factory=list)  # First 20 locators; counts are uncapped
 
     def note_issue(self, source: str, line: int, kind: str, record_type: str = "") -> None:

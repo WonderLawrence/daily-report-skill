@@ -58,6 +58,18 @@ class TestValidateConfig(unittest.TestCase):
     def test_defaults_are_valid(self):
         self.assertEqual(config.validate_config(config.load_config(Path("/nonexistent"))), [])
 
+    def test_target_projects_requires_a_path_list(self):
+        for value in (None, "/one/project", 1, [None], [""], ["   "], ["/one/project", False]):
+            with self.subTest(value=value):
+                cfg = config.load_config(Path("/nonexistent"))
+                cfg["target_projects"] = value
+                errors = config.validate_config(cfg)
+                self.assertEqual(len(errors), 1)
+                self.assertIn("target_projects", errors[0])
+        for value in ([], ["/one/project", "~/another-project"]):
+            cfg["target_projects"] = value
+            self.assertEqual(config.validate_config(cfg), [])
+
     def test_rejects_bad_values(self):
         cfg = config.load_config(Path("/nonexistent"))
         cfg.update(author_emails="a@b.c", utc_offset_hours=99, max_sessions=0,

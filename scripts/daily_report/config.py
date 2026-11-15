@@ -21,7 +21,7 @@ DEFAULTS = {
     "author_emails": [],
     "repos_root": "~/Project",
     # When set, replaces repository discovery and filters sessions
-    "only_repos": [],
+    "target_projects": [],
     "reports_dir": "~/Documents/reports",
     "utc_offset_hours": 8,
     # Detailed summary budget; index and JSON are never truncated
@@ -101,10 +101,12 @@ def _is_number(value) -> bool:
 def validate_config(cfg: dict) -> list[str]:
     """Return actionable errors for values that would otherwise fail mid-run."""
     errors = []
+    if "only_repos" in cfg:
+        errors.append(m.CFG_ERR_PROJECTS_RENAMED)
     if not _is_path_list(cfg.get("author_emails")):
         errors.append(m.CFG_ERR_AUTHOR_EMAILS)
-    if not _is_path_list(cfg.get("only_repos", [])):
-        errors.append(m.CFG_ERR_ONLY_REPOS)
+    if not _is_path_list(cfg.get("target_projects", [])):
+        errors.append(m.CFG_ERR_TARGET_PROJECTS)
     for key in ("repos_root", "reports_dir"):
         if not isinstance(cfg.get(key), str) or not cfg[key].strip():
             errors.append(m.CFG_ERR_PATH_STRING.format(key=key))

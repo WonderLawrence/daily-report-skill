@@ -277,10 +277,11 @@ class TestDshFragments(SessionFixture):
             [{"type": "session", "cwd": "/demo"},
              {"type": "user/message", "time": ms, "data": {"content": "评估方案"}},
              {"type": "tool/call", "time": ms + 1000,
-              "data": {"id": "a", "name": "shell", "arguments": '{"cmd":"test"}'}}],
+              "data": {"callId": "a", "name": "shell", "arguments": '{"cmd":"test"}'}}],
             [{"type": "session", "cwd": "/demo"},
              {"type": "tool/result", "time": ms + 2000,
-              "data": {"id": "a", "output": "FAIL", "exit_code": 1}}],
+              "data": {"message": {"id": "result-message", "toolCallId": "a",
+                                   "content": "FAIL", "isError": True}}}],
         ]
         for i, rows in enumerate(fragments):
             raw = "\n".join(json.dumps(r) for r in rows).encode()

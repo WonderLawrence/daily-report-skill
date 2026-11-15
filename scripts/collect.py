@@ -50,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--author", help=m.CLI_HELP_AUTHOR)
     repos = ap.add_mutually_exclusive_group()
     repos.add_argument("--repo", action="append", default=[], help=m.CLI_HELP_REPO)
-    repos.add_argument("--only-repo", action="append", help=m.CLI_HELP_ONLY_REPO)
+    repos.add_argument("--target-project", action="append", help=m.CLI_HELP_TARGET_PROJECT)
     ap.add_argument("--any-author", action="store_true", help=m.CLI_HELP_ANY_AUTHOR)
     ap.add_argument("--no-git", action="store_true", help=m.CLI_HELP_NO_GIT)
     ap.add_argument(

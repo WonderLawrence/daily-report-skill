@@ -198,5 +198,5 @@ def claude_rows():
         {"type": "assistant", "timestamp": "2026-10-16T10:01:00+08:00", "cwd": "/demo",
          "message": {"role": "assistant", "content": [
              {"type": "text", "text": "根因是接收端锁被持有"},
-             {"type": "tool_use", "name": "Read", "input": {"file_path": "/demo/a.rs"}}]}},
+             {"type": "tool_use", "id": "tool-1", "name": "Read", "input": {"file_path": "/demo/a.rs"}}]}},
     ]

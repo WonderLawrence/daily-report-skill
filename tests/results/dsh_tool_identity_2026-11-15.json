@@ -1,0 +1,146 @@
+{
+  "date": "2026-11-15",
+  "scope": "DSH v4 工具关联 ID、缺失诊断、消费方配对边界，以及辅助 GitHub 查询受限时的处理说明。",
+  "changes": [
+    "调用读取 data.callId；结果优先读取 data.message.toolCallId，缺失或不可用时读取 data.message.source.callId；不以消息自身 id 或旧形状 call_id 猜测关联。",
+    "空白、空值及非字符串/整数的关联 ID 规范化为 null，可读事件仍保留；missing_call_ids 计数、missing_call_id 来源定位与部分解析状态覆盖三种 agent。",
+    "渲染仅使用同一会话内的有效 ID 配对；保留整数 0，拒绝布尔值、空白和不可用 ID。",
+    "采集说明补充连接/认证/权限失败与空结果的区分，环境所需权限获准后重试，失败时保留缺口；没有让脚本自行提权或无限重试。",
+    "说明 only_repos 填项目工作目录并共用 Git/PR 与会话范围；启用 Git 时要求仓库根目录，会话日志读取位置独立且固定。"
+  ],
+  "unit_tests": {
+    "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -q",
+    "python": "3.13.3",
+    "exit_code": 0,
+    "tests_run": 191,
+    "elapsed_seconds": 15.032,
+    "new_tests": 11,
+    "output": "[warn] 重采证据数量减少：commits 2 → 1；旧快照已保留\n[warn] claude: 1 个文件读取或解析不完整；详见证据包采集诊断\n----------------------------------------------------------------------\nRan 191 tests in 15.032s\n\nOK\n",
+    "coverage": [
+      "压缩 DSH v4 输入到规范化 JSON 与 Markdown 的乱序配对",
+      "ID 字段优先级与 source.callId 回退",
+      "消息自身 ID 与旧字段不作关联",
+      "不可用 ID 保留事件并计数",
+      "诊断序列化、Markdown、文件覆盖状态与来源行号",
+      "计数不随 20 条定位上限截断",
+      "区间外记录及缺失时间戳的计数边界",
+      "Claude/Codex 缺失 ID 诊断",
+      "空 ID 不配对、整数 0 可配对",
+      "同名 ID 不跨会话配对"
+    ]
+  },
+  "real_source_replay": {
+    "snapshot": "/Users/wanglang/Documents/reports/.evidence/.history/20261112.md/20261115T135035.023833Z-u473m_42/evidence.json",
+    "source_sha256": {
+      "/Users/wanglang/Documents/reports/.evidence/.history/20261112.md/20261115T135035.023833Z-u473m_42/evidence.json": "d09f28096e8c97e8865eb1ce43db5320d3c822cb2759660a856b7d9acda0c65c",
+      "/Users/wanglang/.dsh/sessions/--Users-wanglang-Documents-deepseek-harness-default-workspace--/session-2a2afea5-c1ac-4ad1-ad04-954dc1030901/session.v4.jsonl.zstd": "67fa42edd522aadfacb2eb65dbf7f8ce7bca7ca19e7d8bb1634ad5ee53592987",
+      "/Users/wanglang/.dsh/sessions/--Users-wanglang-Documents-deepseek-harness-default-workspace--/session-f64c8b9c-3d6d-4499-bfea-add7a3c02322/session.v4.jsonl.zstd": "7a3363a71929dff2edf042689736638643ff72b1a8332ddf1ec681a1b796facc",
+      "/Users/wanglang/.dsh/sessions/--Users-wanglang-Documents-deepseek-harness-default-workspace--/session-88192d55-c34d-42c1-83e8-8bc0afc49e33/session.v4.jsonl.zstd": "e4fefac32808d5d519810c671930004e43026974cdeb1ce1444544ed218c2c6f"
+    },
+    "sessions": [
+      {
+        "session_id": "session-2a2afea5-c1ac-4ad1-ad04-954dc1030901",
+        "source": "/Users/wanglang/.dsh/sessions/--Users-wanglang-Documents-deepseek-harness-default-workspace--/session-2a2afea5-c1ac-4ad1-ad04-954dc1030901/session.v4.jsonl.zstd",
+        "events_preserved": 8,
+        "previous_null_tool_ids": 6,
+        "restored_ids": 6,
+        "exact_call_result_pairs": 3,
+        "diagnostics": {
+          "ok_files": 1,
+          "failed_files": 0,
+          "missing_call_ids": 0
+        }
+      },
+      {
+        "session_id": "session-f64c8b9c-3d6d-4499-bfea-add7a3c02322",
+        "source": "/Users/wanglang/.dsh/sessions/--Users-wanglang-Documents-deepseek-harness-default-workspace--/session-f64c8b9c-3d6d-4499-bfea-add7a3c02322/session.v4.jsonl.zstd",
+        "events_preserved": 249,
+        "previous_null_tool_ids": 178,
+        "restored_ids": 178,
+        "exact_call_result_pairs": 89,
+        "diagnostics": {
+          "ok_files": 1,
+          "failed_files": 0,
+          "missing_call_ids": 0
+        }
+      },
+      {
+        "session_id": "session-88192d55-c34d-42c1-83e8-8bc0afc49e33",
+        "source": "/Users/wanglang/.dsh/sessions/--Users-wanglang-Documents-deepseek-harness-default-workspace--/session-88192d55-c34d-42c1-83e8-8bc0afc49e33/session.v4.jsonl.zstd",
+        "events_preserved": 118,
+        "previous_null_tool_ids": 100,
+        "restored_ids": 100,
+        "exact_call_result_pairs": 50,
+        "diagnostics": {
+          "ok_files": 1,
+          "failed_files": 0,
+          "missing_call_ids": 0
+        }
+      }
+    ],
+    "total_restored_ids": 284,
+    "total_exact_pairs": 142,
+    "redacted_event_text_and_locators_unchanged": true,
+    "sources_and_snapshot_unchanged": true
+  },
+  "workflow_validation": {
+    "method": "阅读修订后的采集与配置说明，并核对当前实现；未运行模型交互验收。",
+    "network_queries_executed": false,
+    "reviewed_cases": [
+      "网络受限不能解释为没有活动，按环境审批机制申请权限，获准后重试同一查询",
+      "授权被拒或重试仍失败时保留缺口并继续已有证据",
+      "only_repos 指项目 cwd 范围，不是会话日志存放目录"
+    ]
+  },
+  "structural_validation": {
+    "skill_creator_quick_validate": "Skill is valid!",
+    "git_diff_check": "passed"
+  },
+  "tested_sha256": {
+    "SKILL.md": "ed7b6d6675e75a2494474405765e3de3ddbde271571c422ce1045a0f254e0fb1",
+    "README.md": "fa7d764e77f98b88902a0c24f32d4ed8d0ffac4c643b879cd573ba1e300efb33",
+    "references/collection.md": "4ae9daa1f551c160be6591c612fac9de99cafed3836c0cdcc96b5ddc0140d452",
+    "scripts/collect.py": "d148f48de6e9ae390abe42ebc10698d69f3f54785762e60afde3a50562a3bbca",
+    "scripts/daily_report/__init__.py": "82b07556d2a7c81a66238b1d9616ad961008e35b514874ff7f92509905f6eed1",
+    "scripts/daily_report/analysis.py": "bcc2e6bb34546261c454705ce81bb78fa87afd02c28a7b8df4d5dfa230db9711",
+    "scripts/daily_report/config.py": "8c053f08def7672e496c1a529c51043a1bf0227fc01609b866e853e701b530d5",
+    "scripts/daily_report/diagnostics.py": "836213ae3039ec3d378d913f07afe7316609c0e0558f16e166e7ca69b5e4758c",
+    "scripts/daily_report/evidence.py": "eb06d7fb2e7e3bc17f6632318221e5f19945e3e68814feb632358df4e454afdb",
+    "scripts/daily_report/evidence_reader.py": "f77d9e9d88e3dc2602eb34a1772b5f9839b608170c2ab5c597c08708055e57ee",
+    "scripts/daily_report/github.py": "e694898d97c800d01e3322e7144c330b59bc8bb1b31000e7a2dc54d6d047ad87",
+    "scripts/daily_report/github_details.py": "4e5e11901ce34c3965288332ac04f2e20b3b1fbc7077636f221de5e1947faee9",
+    "scripts/daily_report/gitlog.py": "79683b80f033ff43fe344f34e32aec3e3a366767b908e77a2992236284f30a2d",
+    "scripts/daily_report/limits.py": "78ac90fc920dbfc62183a96c67b0cf0987f0e70bbfe97b990b23d53e2dfbd71c",
+    "scripts/daily_report/messages.py": "3cf4f9f28d23a18f2f8409476d39f579b0c4c5b9e6d39b735bbf6b8323cfdcee",
+    "scripts/daily_report/models.py": "d4f22f219b80d11751a7071465e9ad6d69820e16295169c3ec2e7b0724f30534",
+    "scripts/daily_report/pipeline.py": "79c7c5c4f4592d3d82b2aa00b03e9a41abd2141b6f46f4bf4c7b1d844b1b0a9e",
+    "scripts/daily_report/pr_report.py": "6bb3b88d2ca9ab0c7a0cb6f42d96956a71b6c3d11b48ee49fc89ed7a625d8efb",
+    "scripts/daily_report/render.py": "2e25d661d0d07296914a21366495e80ae25da19e2ea6f47f4b15b50526ba2bf0",
+    "scripts/daily_report/session_events.py": "1951c117c9a4ba351aa84155245613708737b4b42827f8dbdb276c1fb1b3ac25",
+    "scripts/daily_report/sessions.py": "a12cf3207b4e7224a079c93b215745c587ad2d5d4b5b10c02add3459dac9cab2",
+    "scripts/daily_report/settings.py": "f5192c41215c7b9c31851a9538cf4a74124d79a8dd978a0998643488b5628a70",
+    "scripts/daily_report/text.py": "fe90989ac58f6904334c29898ef39ee5daca18fa179749fde1ef7d1ff5c7cfe8",
+    "scripts/daily_report/timewindow.py": "5e64e5cb9336421fa41b641de1a6e3cee81daf531cd2dfa57861749acd572acd",
+    "scripts/pr_details.py": "84dc8ab28e502dea252deeae27e290b8d94a2c7f35d632550527c08367cfeef4",
+    "scripts/read_evidence.py": "cc24a0c81628550290e5ce0b50bdb88a1311d382a15d425cd229e281088a123f",
+    "scripts/sync_install.py": "c2228409bcdd241091b514193d0a0caa1ba9a4b00f7fabc48effb91485b8c8b0",
+    "tests/helpers.py": "3e6f4f862a5c8aee18103b7c4bc0c75ca26c695616a32fd67c2531ad018ce745",
+    "tests/test_cli.py": "8853119eabbea384dc1fb8adbb6450cfa2c377770c032c8ce6c41706f0d27d7d",
+    "tests/test_config.py": "9dffb53dbda2d55772f0170305c806e4ed6861f9ba0b595e5b74871674572312",
+    "tests/test_evidence.py": "953533a7db64ed3d602d71d7fe7b6e9f88a49a232b3bd99b114ab9257bdf3936",
+    "tests/test_fetch.py": "10856919bbbd05bfaf011eb0ad203c510435d14868cfc6800826ef7ab85477f4",
+    "tests/test_git.py": "b9b533925a78ad1ee32bf7e9b88a00588529fef90ba8e6654cdd83ab40e12932",
+    "tests/test_install.py": "7b01b5e202b70f1e9f6f163e6b687790ccad4e8d731468a995d58b5e67cc7fd2",
+    "tests/test_prs.py": "a055535f1c3d11132ace92d6d8c7c4cc0c8b511b34df90e76faba29a6cf04388",
+    "tests/test_reader.py": "919c6f531e858731bbb2b4fc5d5e090bf509c1691dee427d6fd9fd3d381baadb",
+    "tests/test_render.py": "72a9c586d029bf51c0a5adf71ee66d06a3a0a7521c7499524e38f295ecfc83b6",
+    "tests/test_scope.py": "c9e94339d8bcb1da30f98f2af928de126448c352fd03a5042dd6cb522fde90bd",
+    "tests/test_sessions.py": "3bcceb0ab1ba955f3d595448463ecde3876ff147bba240fc41341300e3fd78d6",
+    "tests/test_tool_identity.py": "244f918779de5036ed00d3ab0f8079ca676ed8682d51b28182a36f6b5e7f80e5"
+  },
+  "limitations": [
+    "真实回放只读取反馈指定的三段 DSH 会话，没有扫描其他会话；日志和原始快照哈希均未改变。",
+    "旧快照的 null ID 未被改写；重新采集后生成的新快照才包含恢复的关联 ID。",
+    "未重跑写稿行为或多轮确认验收，也未重新调用 GitHub 验证网络访问权限。"
+  ]
+}

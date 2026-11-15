@@ -14,7 +14,7 @@ import json
 from datetime import datetime, timezone
 
 from .diagnostics import SessionDiagnostics
-from .models import Event, EventKind
+from .models import Event, EventKind, valid_call_id
 from .text import blocks_text, is_injected, user_text
 from .timewindow import epoch_ms, parse_ts
 
@@ -31,8 +31,10 @@ class _Collector:
     def add(self, kind: str, text, call_id=None) -> None:
         if kind == EventKind.TOOL_CALL and not isinstance(text.get("name"), str):
             raise ValueError("tool name must be a string")
-        if call_id is not None and not isinstance(call_id, (str, int)):
-            raise ValueError("tool call ID must be a string or integer")
+        # Keep usable content even when the association is missing or malformed.
+        # The caller diagnoses this gap separately from unreadable records.
+        if not valid_call_id(call_id):
+            call_id = None
         if not isinstance(text, str):
             text = json.dumps(text, ensure_ascii=False)
         if text.strip() or kind == EventKind.TOOL_RESULT:
@@ -160,10 +162,15 @@ def _dsh_events(row: dict, out: _Collector) -> None:
         out.add(
             EventKind.TOOL_CALL,
             {"name": data.get("name"), "input": data.get("arguments")},
-            data.get("call_id", data.get("id")),
+            data.get("callId"),
         )
     elif kind == "tool/result":
-        out.add(EventKind.TOOL_RESULT, data, data.get("call_id", data.get("id")))
+        message = _dict(data.get("message"))
+        call_id = message.get("toolCallId")
+        if not valid_call_id(call_id):
+            call_id = _dict(message.get("source")).get("callId")
+        # message.id identifies the result message itself, not its tool call.
+        out.add(EventKind.TOOL_RESULT, data, call_id)
 
 
 EXTRACTORS = {
@@ -183,6 +190,9 @@ def record_events(row: dict, agent: str, diagnostics: SessionDiagnostics | None 
         diagnostics.user_messages += sum(e.kind == EventKind.USER_REQUEST for e in out.events)
         diagnostics.assistant_messages += sum(e.kind == EventKind.ASSISTANT_STATEMENT for e in out.events)
         diagnostics.unparsed_messages += int(out.unparsed_message)
+        diagnostics.missing_call_ids += sum(
+            e.kind in (EventKind.TOOL_CALL, EventKind.TOOL_RESULT) and e.call_id is None for e in out.events
+        )
     return out.events
 
 

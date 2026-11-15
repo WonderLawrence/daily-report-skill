@@ -1,7 +1,7 @@
 {
   "author_emails": [],
   "repos_root": "~/Project",
-  "only_repos": [],
+  "target_projects": [],
   "reports_dir": "~/Documents/reports",
   "utc_offset_hours": 8,
   "max_sessions": 30,

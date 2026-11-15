@@ -122,8 +122,8 @@ python3 $S --json > /tmp/collection-run.json # 保存证据并返回路径、计
 python3 $S --overwrite          # 允许覆盖已有证据文件，覆盖前保留旧证据快照
 python3 $S --any-author         # 不过滤作者（团队仓库慎用）
 python3 $S --no-sessions        # 只看提交
-python3 $S --only-repo ~/Project/acme-node # 只采集该仓库及其项目会话
-python3 $S --only-repo ~/Project/acme-node --only-repo ~/Project/acme-sdk
+python3 $S --target-project ~/Project/acme-node # 只采集该仓库及其项目会话
+python3 $S --target-project ~/Project/acme-node --target-project ~/Project/acme-sdk
 python3 $S --repo ~/other/repo  # 追加仓库，仍扫描默认根目录
 python3 $S --no-prs             # 不查询 GitHub PR
 python3 $S --no-fetch           # 离线采集，不更新远程跟踪引用
@@ -140,8 +140,11 @@ python3 $S --max-sessions 10    # 展开 10 段详细摘要；完整索引和 JS
 每次运行都会重新采集；`--overwrite` 只允许覆盖已有输出文件，不改变采集范围或合并新旧证据。
 `collect.py` 和 `pr_details.py` 均保留旧参数 `--force` 作为兼容别名。
 
-严格范围使用 `--only-repo`，CLI 优先于 `only_repos` 配置；`--repo` 只追加范围，与前者及非空 `only_repos` 配置互斥。
+严格范围使用 `--target-project`，CLI 优先于 `target_projects` 配置；`--repo` 只追加范围，与前者及非空 `target_projects` 配置互斥。
 独立 worktree 需要分别指定。范围外或项目无法确认的会话不进入证据列表，诊断保留计数。
+`target_projects` 填关注的项目工作目录，同时限制 Git/PR 和会话的项目范围；不要填会话日志目录。日志仍从 `~/.codex/sessions`、`~/.claude/projects`、`~/.dsh/sessions` 读取。
+填写后按项目列表采集；留空 `[]` 时使用默认发现范围。原配置项 `only_repos` 与参数 `--only-repo` 已更名为 `target_projects` 与 `--target-project`，不保留旧名称别名；旧配置会明确报错，需将原项目列表移到新字段并移除旧字段。
+启用 Git 时每项必须是仓库根目录；禁用 Git 后才允许用非 Git 工作目录筛选会话。目前不支持在启用 Git 的同时额外加入非 Git 会话工作区。
 
 ## Git 同步
 
@@ -153,7 +156,7 @@ python3 $S --max-sessions 10    # 展开 10 段详细摘要；完整索引和 JS
 
 **提交证据依赖已安装且已登录的 `gh`**：第一层用 `search/issues` 按登录账号、起始时间和已限定的仓库分页搜索，第二层读每个 PR 的
 [提交列表](https://docs.github.com/en/rest/pulls/pulls#list-commits-on-a-pull-request)，按作者条件和 committer date 过滤。分页、平台上限与覆盖缺口见 [两层遍历](references/collection.md#git-证据pr-两层遍历)。
-本地仓库通过 github.com 的 HTTPS/SSH 远程映射到 `owner/repo`，用于按 SHA 解析改动文件、行数，以及 `--only-repo` 限定范围。
+本地仓库通过 github.com 的 HTTPS/SSH 远程映射到 `owner/repo`，用于按 SHA 解析改动文件、行数，以及 `--target-project` 限定范围。
 
 | 配置 | 默认值 | 用途 |
 |---|---|---|

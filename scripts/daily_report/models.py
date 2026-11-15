@@ -77,6 +77,11 @@ class ArtifactKind:
     PR_DETAILS = "pr_details"
 
 
+def valid_call_id(value: object) -> bool:
+    """An opaque, nonblank ID; zero is valid, booleans are not IDs."""
+    return (isinstance(value, str) and bool(value.strip())) or (isinstance(value, int) and not isinstance(value, bool))
+
+
 @dataclass
 class Event:
     """One retained record from a session file.
@@ -423,7 +428,7 @@ class Scope:
     repos: list[str] = field(default_factory=list)  # Repository names scanned
     sessions: list[str] = field(default_factory=list)  # Session sources enabled
     dirty: bool = False  # Worktree state was scanned
-    only_repos: list[str] = field(default_factory=list)  # Strict scope, absolute paths
+    target_projects: list[str] = field(default_factory=list)  # Strict scope, absolute paths
 
 
 @dataclass

@@ -1,0 +1,117 @@
+{
+  "date": "2026-11-15",
+  "change": "将项目范围配置、CLI 和新证据的范围字段统一为 target_projects / --target-project；范围规则保持不变。",
+  "configuration_contract": {
+    "config_key": "target_projects",
+    "cli_flag": "--target-project",
+    "evidence_field": "scope.target_projects",
+    "empty_list": "默认发现范围",
+    "cli_priority": "CLI 列表覆盖配置列表，可重复传入并去重",
+    "git_enabled": "要求项目为仓库根目录",
+    "git_disabled": "允许普通工作目录筛选会话",
+    "legacy_names": "旧配置字段明确报错，旧 CLI 参数不接受，不作别名；历史结果文件不改写。"
+  },
+  "validation": {
+    "tests_run": 197,
+    "elapsed_seconds": 15.838,
+    "exit_code": 0,
+    "output": "[warn] 重采证据数量减少：commits 2 → 1；旧快照已保留\n[warn] claude: 1 个文件读取或解析不完整；详见证据包采集诊断\n----------------------------------------------------------------------\nRan 197 tests in 15.838s\n\nOK\n",
+    "scope_tests": [
+      "项目名单在 fetch 和 PR 查询之前限制范围，筛选会话 cwd 并写入 scope.target_projects",
+      "CLI 覆盖配置、重复项目去重、空名单默认发现",
+      "--repo 继续为追加范围，不能与目标项目名单混用",
+      "旧配置在发现或网络操作前报错，旧参数不接受",
+      "非 Git 目录仍须关闭 Git 采集",
+      "路径列表格式校验"
+    ],
+    "migration_checks": [
+      "当前配置迁移后的临时副本通过配置校验",
+      "临时文件验证项目及其他字段不变、备份内容一致、源文件发生变化时拒绝覆盖"
+    ],
+    "quick_validate": "Skill is valid!",
+    "git_diff_check": "passed",
+    "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -q",
+    "ruff_check": "passed: ruff check --no-cache scripts",
+    "ruff_format": "passed: ruff format --check --no-cache scripts",
+    "pylint": "passed: pylint --rcfile=.pylintrc --jobs=1 scripts",
+    "pre_commit_adjustments": "按仓库格式合并生成器换行；整数 ID 改用 isinstance 并显式排除 bool。重新执行 197 项测试及 Ruff/Pylint 检查。"
+  },
+  "tested_sha256": {
+    "scripts/collect.py": "a47b3b0fa5ab1ae2f3286c9cd14d86d8b5daf57d9e5ff186a945d664d8e75d82",
+    "scripts/daily_report/__init__.py": "82b07556d2a7c81a66238b1d9616ad961008e35b514874ff7f92509905f6eed1",
+    "scripts/daily_report/analysis.py": "bcc2e6bb34546261c454705ce81bb78fa87afd02c28a7b8df4d5dfa230db9711",
+    "scripts/daily_report/config.py": "0ede877e9e0f62c958a05b0056923265d27c700c74a23ee5b08f837099847631",
+    "scripts/daily_report/diagnostics.py": "836213ae3039ec3d378d913f07afe7316609c0e0558f16e166e7ca69b5e4758c",
+    "scripts/daily_report/evidence.py": "eb06d7fb2e7e3bc17f6632318221e5f19945e3e68814feb632358df4e454afdb",
+    "scripts/daily_report/evidence_reader.py": "f77d9e9d88e3dc2602eb34a1772b5f9839b608170c2ab5c597c08708055e57ee",
+    "scripts/daily_report/github.py": "e694898d97c800d01e3322e7144c330b59bc8bb1b31000e7a2dc54d6d047ad87",
+    "scripts/daily_report/github_details.py": "4e5e11901ce34c3965288332ac04f2e20b3b1fbc7077636f221de5e1947faee9",
+    "scripts/daily_report/gitlog.py": "79683b80f033ff43fe344f34e32aec3e3a366767b908e77a2992236284f30a2d",
+    "scripts/daily_report/limits.py": "78ac90fc920dbfc62183a96c67b0cf0987f0e70bbfe97b990b23d53e2dfbd71c",
+    "scripts/daily_report/messages.py": "c76d2f697cd5c3aebb0f2936d86c59db486a368cc3b05fa7ae267c95caaf4f73",
+    "scripts/daily_report/models.py": "26582039523882ef4fadc03aa2e58c5368cd54baa8f9a52725f0dd7a55a2569c",
+    "scripts/daily_report/pipeline.py": "720b8594afb93536c43f61abcea303ca41db1b95b926bb7f0a9eec1c9c398122",
+    "scripts/daily_report/pr_report.py": "6bb3b88d2ca9ab0c7a0cb6f42d96956a71b6c3d11b48ee49fc89ed7a625d8efb",
+    "scripts/daily_report/render.py": "c7431cdf20250e85bfb305ddcaaf865812821bd90bc7c188fc7c25f8a265b5c8",
+    "scripts/daily_report/session_events.py": "524ad93aecfdcc96467f31dd1075ee0b07f1559d45582943c466762e6e76c756",
+    "scripts/daily_report/sessions.py": "76e6a3f641a82cefd54aea6218bb124906879c250ceab316ef16ff6045dfda33",
+    "scripts/daily_report/settings.py": "503639f8ed6661c2b9cba72b54f6cd359c0f8be74fbdde7d83c5dd279851b259",
+    "scripts/daily_report/text.py": "fe90989ac58f6904334c29898ef39ee5daca18fa179749fde1ef7d1ff5c7cfe8",
+    "scripts/daily_report/timewindow.py": "5e64e5cb9336421fa41b641de1a6e3cee81daf531cd2dfa57861749acd572acd",
+    "scripts/pr_details.py": "84dc8ab28e502dea252deeae27e290b8d94a2c7f35d632550527c08367cfeef4",
+    "scripts/read_evidence.py": "cc24a0c81628550290e5ce0b50bdb88a1311d382a15d425cd229e281088a123f",
+    "scripts/sync_install.py": "c2228409bcdd241091b514193d0a0caa1ba9a4b00f7fabc48effb91485b8c8b0",
+    "tests/helpers.py": "3e6f4f862a5c8aee18103b7c4bc0c75ca26c695616a32fd67c2531ad018ce745",
+    "tests/test_cli.py": "8853119eabbea384dc1fb8adbb6450cfa2c377770c032c8ce6c41706f0d27d7d",
+    "tests/test_config.py": "4e00cc0f55655b673547c6e3ef2fd3696cd0711cdd1cf13f259bd422a7a423df",
+    "tests/test_evidence.py": "953533a7db64ed3d602d71d7fe7b6e9f88a49a232b3bd99b114ab9257bdf3936",
+    "tests/test_fetch.py": "10856919bbbd05bfaf011eb0ad203c510435d14868cfc6800826ef7ab85477f4",
+    "tests/test_git.py": "b9b533925a78ad1ee32bf7e9b88a00588529fef90ba8e6654cdd83ab40e12932",
+    "tests/test_install.py": "7b01b5e202b70f1e9f6f163e6b687790ccad4e8d731468a995d58b5e67cc7fd2",
+    "tests/test_prs.py": "a055535f1c3d11132ace92d6d8c7c4cc0c8b511b34df90e76faba29a6cf04388",
+    "tests/test_reader.py": "919c6f531e858731bbb2b4fc5d5e090bf509c1691dee427d6fd9fd3d381baadb",
+    "tests/test_render.py": "75874bd0feab340e8200fdc03b8fd2c4d369ae3a1efd93a207800396060891aa",
+    "tests/test_scope.py": "afd1270ac0ff4ab83a106f4a7f3b73e06703a0a56e33429228997dbee010ce71",
+    "tests/test_sessions.py": "3bcceb0ab1ba955f3d595448463ecde3876ff147bba240fc41341300e3fd78d6",
+    "tests/test_tool_identity.py": "244f918779de5036ed00d3ab0f8079ca676ed8682d51b28182a36f6b5e7f80e5",
+    "SKILL.md": "ed7b6d6675e75a2494474405765e3de3ddbde271571c422ce1045a0f254e0fb1",
+    "README.md": "02962587ae377a3e5c23886f3e920264ef644d05b8f21a755d0d036c38cd9af5",
+    "references/collection.md": "804dbab68aec5b892eedcadc991925019a83afccd15488be15f2e8705e36b501",
+    "scripts/config.example.json": "f56be3f737fc016b25e4338257ff6e082e31ec97eac110ab4469684a2242e95a"
+  },
+  "limitations": [
+    "未重跑写稿行为或多轮对话验收；采集测试使用模拟 PR 查询，没有执行真实 GitHub 查询。",
+    "历史快照保留原字段；本次更名作用于配置、脚本接口和新生成的采集范围。"
+  ],
+  "previous_runs": [
+    {
+      "validation": {
+        "tests_run": 197,
+        "elapsed_seconds": 13.826,
+        "exit_code": 0,
+        "output": "[warn] 重采证据数量减少：commits 2 → 1；旧快照已保留\n[warn] claude: 1 个文件读取或解析不完整；详见证据包采集诊断\n----------------------------------------------------------------------\nRan 197 tests in 13.826s\n\nOK\n",
+        "isolated_config": "使用临时空配置运行测试，避免将迁移前的用户配置用作测试默认值。",
+        "source_changed_during_run": false,
+        "scope_tests": [
+          "项目名单在 fetch 和 PR 查询之前限制范围，筛选会话 cwd 并写入 scope.target_projects",
+          "CLI 覆盖配置、重复项目去重、空名单默认发现",
+          "--repo 继续为追加范围，不能与目标项目名单混用",
+          "旧配置在发现或网络操作前报错，旧参数不接受",
+          "非 Git 目录仍须关闭 Git 采集",
+          "路径列表格式校验"
+        ],
+        "migration_checks": [
+          "当前配置迁移后的临时副本通过配置校验",
+          "临时文件验证项目及其他字段不变、备份内容一致、源文件发生变化时拒绝覆盖"
+        ],
+        "quick_validate": "Skill is valid!",
+        "git_diff_check": "passed"
+      },
+      "superseded_file_hashes": {
+        "scripts/daily_report/models.py": "15b3151417bc586fb8c3de7d0089a27b377fab69119bb103097d3ee77678872e",
+        "scripts/daily_report/session_events.py": "1951c117c9a4ba351aa84155245613708737b4b42827f8dbdb276c1fb1b3ac25"
+      },
+      "note": "未列出的文件哈希与本记录最新 tested_sha256 相同；保留格式及类型检查调整前的原始验证结果。"
+    }
+  ]
+}

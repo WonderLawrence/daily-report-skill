@@ -70,17 +70,16 @@ class TestRender(unittest.TestCase):
         self.assertIn("SKILL.md", out)
 
 class TestRecordShapes(unittest.TestCase):
-    def test_scope_renders_from_fields_and_keeps_its_on_disk_keys(self):
-        """Scope replaced a raw dict: the section reads fields, the JSON keys stay the same."""
+    def test_scope_renders_and_serializes_target_project_paths(self):
         scope = Scope(git=True, repos=["node"], sessions=["claude"], dirty=True,
-                      only_repos=["/p/node"])
+                      target_projects=["/p/node"])
         output = render.render(make_report(scope=scope))
         self.assertIn("- Git：node", output)
         self.assertIn("- 会话：claude", output)
         self.assertIn("已扫描（运行时快照）", output)
         self.assertIn("- 仅关注项目：/p/node", output)
         self.assertEqual(list(evidence.json_evidence(scope, False)),
-                         ["git", "repos", "sessions", "dirty", "only_repos"])
+                         ["git", "repos", "sessions", "dirty", "target_projects"])
 
     def test_report_without_scope_renders_no_scope_section(self):
         self.assertNotIn("## 采集范围", render.render(make_report()))
